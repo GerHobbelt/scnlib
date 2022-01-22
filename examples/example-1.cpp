@@ -18,8 +18,18 @@
 #include <scn/scn.h>
 #include <iostream>
 
-int main() {
-    int i;
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_example_01_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
+{
+	int i;
     scn::prompt("Hi there! What's your favorite number? ", "{}", i);
     std::cout << "Ooh, " << i << ", interesting!\n";
+	return 0;
 }

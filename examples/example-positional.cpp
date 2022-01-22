@@ -18,10 +18,19 @@
 #include <scn/scn.h>
 #include <iostream>
 
-int main()
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_positional_example_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
-    int first{}, second{};
+	int first{}, second{};
     if (auto ret = scn::scan("123 456", "{1} {0}", first, second)) {
         std::cout << "First: " << first << ", second: " << second << '\n';
     }
+	return 0;
 }

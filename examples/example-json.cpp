@@ -20,6 +20,9 @@
 #include <iostream>
 #include <vector>
 
+#include "monolithic_examples.h"
+
+
 struct string_list {
     std::vector<int> list;
 };
@@ -42,9 +45,15 @@ namespace scn {
     SCN_END_NAMESPACE
 }
 
-int main()
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_json_example_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
-    string_list val;
+	string_list val;
     std::string source = R"([1, 2, 3])";
     auto result = scn::scan(source, "[{}", val);
 
@@ -56,4 +65,5 @@ int main()
             std::cout << e << '\n';
         }
     }
+	return 0;
 }

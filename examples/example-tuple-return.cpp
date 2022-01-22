@@ -19,7 +19,15 @@
 #include <scn/tuple_return.h>
 #include <iostream>
 
-int main()
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_tuple_example_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
 #if defined(__cpp_structured_bindings) && __cpp_structured_bindings >= 201606
     auto [result, str, i] =
@@ -27,8 +35,10 @@ int main()
     if (result) {
         std::cout << "Read " << str << " and " << i << '\n';
     }
+	return 0;
 #else
     std::cout << "Compile with structured bindings support (C++17) for this "
                  "example to work\n";
+	return 1;
 #endif
 }

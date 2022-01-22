@@ -19,11 +19,20 @@
 
 #include <iostream>
 
-int main()
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_readme_example_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
-    std::string word;
+	std::string word;
     auto result = scn::scan("Hello world!", "{}", word);
 
     std::cout << word << '\n';  // Will output "Hello"
     std::cout << result.string() << '\n';   // Will output " world!"
+	return 0;
 }

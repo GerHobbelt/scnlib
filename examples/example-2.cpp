@@ -19,11 +19,20 @@
 #include <iostream>
 #include <string>
 
-int main()
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_example_02_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
-    std::cout << "Hi there! What's your first name?\n";
+	std::cout << "Hi there! What's your first name?\n";
 
     std::string name;
     scn::input("{}", name);
     std::cout << "Welcome, " << name << '\n';
+	return 0;
 }

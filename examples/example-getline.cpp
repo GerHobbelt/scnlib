@@ -18,9 +18,17 @@
 #include <scn/scn.h>
 #include <iostream>
 
-int main()
+#include "monolithic_examples.h"
+
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main(cnt, arr)      scanf_getline_example_main(cnt, arr)
+#endif
+
+int main(int argc, const char** argv)
 {
-    auto source = std::string{"First line\nSecond line"};
+	auto source = std::string{"First line\nSecond line"};
     std::string line{};
     if (auto ret = scn::getline(source, line)) {
         std::cout << "First line was: '" << line << "'\n";
@@ -28,4 +36,5 @@ int main()
             std::cout << "Second line was: '" << line << "'\n";
         }
     }
+	return 0;
 }
