@@ -98,7 +98,7 @@ namespace scn {
             }
             type&& get() && noexcept
             {
-                return SCN_MOVE(*value);
+                return *value;
             }
         };
         template <typename T>
@@ -119,7 +119,7 @@ namespace scn {
             }
             T&& get() && noexcept
             {
-                return SCN_MOVE(value);
+                return value;
             }
         };
 
@@ -270,9 +270,9 @@ namespace scn {
             auto size() const noexcept(noexcept(
                 ranges::distance(SCN_DECLVAL(ranges::iterator_t<const R>),
                                  SCN_DECLVAL(ranges::sentinel_t<const R>))))
-                -> decltype(
-                    ranges::distance(SCN_DECLVAL(ranges::iterator_t<const R>),
-                                     SCN_DECLVAL(ranges::sentinel_t<const R>)))
+                -> decltype(ranges::distance(
+                    SCN_DECLVAL(ranges::iterator_t<const R>),
+                    SCN_DECLVAL(ranges::sentinel_t<const R>)))
             {
                 return ranges::distance(m_begin, end());
             }
@@ -439,17 +439,19 @@ namespace scn {
                 }
             };
         }  // namespace _wrap
-        namespace {
-            static constexpr auto& wrap = static_const<_wrap::fn>::value;
-        }
+    }      // namespace detail
 
-        template <typename Range>
-        struct range_wrapper_for {
-            using type = decltype(wrap(SCN_DECLVAL(Range)));
-        };
-        template <typename Range>
-        using range_wrapper_for_t = typename range_wrapper_for<Range>::type;
-    }  // namespace detail
+    namespace {
+        static constexpr auto& wrap =
+            detail::static_const<detail::_wrap::fn>::value;
+    }
+
+    template <typename Range>
+    struct range_wrapper_for {
+        using type = decltype(wrap(SCN_DECLVAL(Range)));
+    };
+    template <typename Range>
+    using range_wrapper_for_t = typename range_wrapper_for<Range>::type;
 
     /**
      * Base class for the result type returned by most scanning functions
@@ -532,6 +534,9 @@ namespace scn {
             }
             SCN_GCC_PUSH
             SCN_GCC_IGNORE("-Wnoexcept")
+            // Mitigate problem where Doxygen would think that SCN_GCC_PUSH was
+            // a part of the definition of end()
+        public:
             /// End of the leftover range
             sentinel end() const
                 noexcept(noexcept(SCN_DECLVAL(wrapped_range_type).end()))
@@ -546,7 +551,8 @@ namespace scn {
                 return begin() == end();
             }
             SCN_GCC_POP
-
+            // See above at SCN_GCC_PUSH
+        public:
             /// A subrange pointing to the leftover range
             ranges::subrange<iterator, sentinel> subrange() const
             {
@@ -574,40 +580,62 @@ namespace scn {
             }
 
             /**
-             * These member functions enable more conventient use of the
-             * leftover range for non-scnlib use cases. The range must be
-             * contiguous.
+             * \defgroup range_as_range Contiguous leftover range convertors
              *
-             * The lifetime semantics are as one would expect: \ref string_view
-             * and \ref scan reference the leftover range, \ref string allocates
-             * a new string, independent of the leftover range.
+             * These member functions enable more convenient use of the
+             * leftover range for non-scnlib use cases. The range must be
+             * contiguous. The leftover range is not advanced, and can still be
+             * used.
+             *
+             * @{
+             */
+
+            /**
+             * \ingroup range_as_range
+             * Return a view into the leftover range as a \c string_view.
+             * Operations done to the leftover range after a call to this may
+             * cause issues with iterator invalidation. The returned range will
+             * reference to the leftover range, so be wary of
+             * use-after-free-problems.
              */
             template <
                 typename R = wrapped_range_type,
                 typename = typename std::enable_if<R::is_contiguous>::type>
-            basic_string_view<char_type> string_view() const
+            basic_string_view<char_type> range_as_string_view() const
             {
                 return {m_range.data(),
                         static_cast<std::size_t>(m_range.size())};
             }
-            /// \copydoc string_view()
+            /**
+             * \ingroup range_as_range
+             * Return a view into the leftover range as a \c span.
+             * Operations done to the leftover range after a call to this may
+             * cause issues with iterator invalidation. The returned range will
+             * reference to the leftover range, so be wary of
+             * use-after-free-problems.
+             */
             template <
                 typename R = wrapped_range_type,
                 typename = typename std::enable_if<R::is_contiguous>::type>
-            span<char_type> span() const
+            span<const char_type> range_as_span() const
             {
                 return {m_range.data(),
                         static_cast<std::size_t>(m_range.size())};
             }
-            /// \copydoc string_view()
+            /**
+             * \ingroup range_as_range
+             * Return the leftover range as a string. The contents are copied
+             * into the string, so using this will not lead to lifetime issues.
+             */
             template <
                 typename R = wrapped_range_type,
                 typename = typename std::enable_if<R::is_contiguous>::type>
-            std::basic_string<char_type> string() const
+            std::basic_string<char_type> range_as_string() const
             {
                 return {m_range.data(),
                         static_cast<std::size_t>(m_range.size())};
             }
+            /// @}
 
         protected:
             wrapped_range_type m_range;
@@ -938,11 +966,11 @@ namespace scn {
      * \endcode
      */
     template <typename Error = wrapped_error, typename Range>
-    auto make_result(Range&& r) -> detail::
-        result_type_for_t<Error, Range, detail::range_wrapper_for_t<Range>>
+    auto make_result(Range&& r)
+        -> detail::result_type_for_t<Error, Range, range_wrapper_for_t<Range>>
     {
         return detail::wrap_result(Error{}, detail::range_tag<Range>{},
-                                   detail::wrap(r));
+                                   wrap(r));
     }
 
     SCN_END_NAMESPACE
