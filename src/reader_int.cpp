@@ -20,12 +20,96 @@
 #endif
 
 #include <scn/detail/args.h>
-#include <scn/detail/reader.h>
+#include <scn/detail/reader/int.h>
 
 namespace scn {
     SCN_BEGIN_NAMESPACE
 
     namespace detail {
+        template <typename T>
+        template <typename CharT>
+        expected<typename span<const CharT>::iterator>
+        integer_scanner<T>::parse_base_prefix(span<const CharT> s, int& b) const
+        {
+            auto it = s.begin();
+            // If base can be detected, it should start with '0'
+            if (*it == ascii_widen<CharT>('0')) {
+                ++it;
+                if (it == s.end()) {
+                    // It's really just 0
+                    // Return it to begininng, where '0' is
+                    b = -1;
+                    return it;
+                }
+                if (*it == ascii_widen<CharT>('x') ||
+                    *it == ascii_widen<CharT>('X')) {
+                    // Hex: 0x or 0X
+                    ++it;
+                    if (SCN_UNLIKELY(it == s.end())) {
+                        // 0x/0X not a valid number
+                        b = -1;
+                        return --it;
+                    }
+                    if (b == 0) {
+                        // Detect base
+                        b = 16;
+                    }
+                    else if (b != 16) {
+                        // Invalid prefix for base
+                        return error(error::invalid_scanned_value,
+                                     "Invalid base prefix");
+                    }
+                }
+                else if (*it == ascii_widen<CharT>('b') ||
+                         *it == ascii_widen<CharT>('B')) {
+                    // Binary: 0b or 0b
+                    ++it;
+                    if (SCN_UNLIKELY(it == s.end())) {
+                        // 0b/0B not a valid number
+                        b = -1;
+                        return --it;
+                    }
+                    if (b == 0) {
+                        // Detect base
+                        b = 2;
+                    }
+                    else if (b != 2) {
+                        // Invalid prefix for base
+                        return error(error::invalid_scanned_value,
+                                     "Invalid base prefix");
+                    }
+                }
+                else if (*it == ascii_widen<CharT>('o') ||
+                         *it == ascii_widen<CharT>('O')) {
+                    // Octal: 0o or 0O
+                    ++it;
+                    if (SCN_UNLIKELY(it == s.end())) {
+                        // 0o/0O not a valid number
+                        b = -1;
+                        return --it;
+                    }
+                    if (b == 0) {
+                        // Detect base
+                        b = 8;
+                    }
+                    else if (b != 8) {
+                        // Invalid prefix for base
+                        return error(error::invalid_scanned_value,
+                                     "Invalid base prefix");
+                    }
+                }
+                else if (b == 0) {
+                    // Starting with only 0 -> octal
+                    b = 8;
+                }
+            }
+            if (b == 0) {
+                // None detected, default to 10
+                b = 10;
+            }
+            return it;
+        }
+
         template <typename T>
         template <typename CharT>
         expected<std::ptrdiff_t> integer_scanner<T>::_parse_int(
@@ -38,7 +122,7 @@ namespace scn {
 
             if (std::is_unsigned<T>::value) {
                 if (s[0] == detail::ascii_widen<CharT>('-')) {
-                    return error(error::value_out_of_range,
+                    return error(error::invalid_scanned_value,
                                  "Unexpected sign '-' when scanning an "
                                  "unsigned integer");
                 }
@@ -50,50 +134,49 @@ namespace scn {
             bool minus_sign = false;
             auto it = s.begin();
 
-            if (s[0] == ascii_widen<CharT>('-') ||
-                s[0] == ascii_widen<CharT>('+')) {
-                SCN_GCC_PUSH
-                SCN_GCC_IGNORE("-Wsign-conversion")
-                minus_sign = s[0] == ascii_widen<CharT>('-');
+            SCN_GCC_PUSH
+            SCN_GCC_IGNORE("-Wsign-conversion")
+            if (s[0] == ascii_widen<CharT>('-')) {
+                if (SCN_UNLIKELY((format_options & only_unsigned) != 0)) {
+                    // 'u' option -> negative values disallowed
+                    return error(error::invalid_scanned_value,
+                                 "Parsed negative value when type was 'u'");
+                }
+                minus_sign = true;
                 ++it;
-                SCN_GCC_POP
             }
+            else if (s[0] == ascii_widen<CharT>('+')) {
+                ++it;
+            }
+            SCN_GCC_POP
             if (SCN_UNLIKELY(it == s.end())) {
                 return error(error::invalid_scanned_value,
                              "Expected number after sign");
             }
 
-            // Format string was 'b__' -> detect base
-            if (SCN_UNLIKELY(base == 0)) {
-                if (*it == ascii_widen<CharT>('0')) {
-                    ++it;
-                    if (it == s.end()) {
-                        val = 0;
-                        return ranges::distance(s.begin(), it);
-                    }
-                    if (*it == ascii_widen<CharT>('x') ||
-                        *it == ascii_widen<CharT>('X')) {
-                        if (SCN_UNLIKELY(base != 0 && base != 16)) {
-                            val = 0;
-                            return ranges::distance(s.begin(), it);
-                        }
-                        ++it;
-                        if (SCN_UNLIKELY(it == s.end())) {
-                            --it;
-                            val = 0;
-                            return ranges::distance(s.begin(), it);
-                        }
-                        if (base == 0) {
-                            base = 16;
-                        }
-                    }
-                    else if (base == 0) {
-                        base = 8;
-                    }
+            // Format string was 'i' or empty -> detect base
+            // or
+            // allow_base_prefix (skip 0x etc.)
+            if (SCN_UNLIKELY(base == 0 ||
+                             (format_options & allow_base_prefix) != 0)) {
+                int b{base};
+                auto r = parse_base_prefix<CharT>({it, s.end()}, b);
+                if (!r) {
+                    return r.error();
                 }
-            }
-            if (base == 0) {
-                base = 10;
+                if (b == -1) {
+                    // -1 means we read a '0'
+                    val = 0;
+                    return ranges::distance(s.begin(), r.value());
+                }
+                if (b != 10 && base != b && base != 0) {
+                    return error(error::invalid_scanned_value,
+                                 "Invalid base prefix");
+                }
+                if (base == 0) {
+                    base = static_cast<uint8_t>(b);
+                }
+                it = r.value();
             }
 
             SCN_GCC_PUSH
@@ -215,12 +298,16 @@ namespace scn {
             SCN_GCC_POP
         }
 
+#if SCN_INCLUDE_SOURCE_DEFINITIONS
+
 #define SCN_DEFINE_INTEGER_SCANNER_MEMBERS_IMPL(CharT, T)             \
     template expected<std::ptrdiff_t> integer_scanner<T>::_parse_int( \
         T& val, span<const CharT> s);                                 \
     template expected<typename span<const CharT>::iterator>           \
     integer_scanner<T>::_parse_int_impl(T& val, bool minus_sign,      \
-                                        span<const CharT> buf) const;
+                                        span<const CharT> buf) const; \
+    template expected<typename span<const CharT>::iterator>           \
+    integer_scanner<T>::parse_base_prefix(span<const CharT>, int&) const;
 
 #define SCN_DEFINE_INTEGER_SCANNER_MEMBERS(Char)                  \
     SCN_DEFINE_INTEGER_SCANNER_MEMBERS_IMPL(Char, short)          \
@@ -234,6 +321,8 @@ namespace scn {
 
         SCN_DEFINE_INTEGER_SCANNER_MEMBERS(char)
         SCN_DEFINE_INTEGER_SCANNER_MEMBERS(wchar_t)
+
+#endif
 
     }  // namespace detail
 

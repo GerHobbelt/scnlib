@@ -34,7 +34,7 @@ namespace scn {
         using std::random_access_iterator_tag;
         struct contiguous_iterator_tag : random_access_iterator_tag {
         };
-    }  // namespace ranges
+    }  // namespace custom_ranges
 
     /**
      * A view over a contiguous range.
@@ -119,7 +119,7 @@ namespace scn {
             return reverse_iterator{cbegin()};
         }
 
-        constexpr reference operator[](index_type i) const noexcept
+        SCN_CONSTEXPR14 reference operator[](index_type i) const noexcept
         {
             SCN_EXPECT(size() > i);
             return *(m_ptr + i);
@@ -129,31 +129,32 @@ namespace scn {
         {
             return m_ptr;
         }
-        constexpr index_type size() const noexcept
+        SCN_NODISCARD constexpr index_type size() const noexcept
         {
             return static_cast<index_type>(m_end - m_ptr);
         }
-        constexpr ssize_type ssize() const noexcept
+        SCN_NODISCARD constexpr ssize_type ssize() const noexcept
         {
             return m_end - m_ptr;
         }
 
-        constexpr span<T> first(index_type n) const
+        SCN_CONSTEXPR14 span<T> first(index_type n) const
         {
             SCN_EXPECT(size() >= n);
             return span<T>(data(), data() + n);
         }
-        constexpr span<T> last(index_type n) const
+        SCN_CONSTEXPR14 span<T> last(index_type n) const
         {
             SCN_EXPECT(size() >= n);
             return span<T>(data() + size() - n, data() + size());
         }
-        constexpr span<T> subspan(index_type off) const
+        SCN_CONSTEXPR14 span<T> subspan(index_type off) const
         {
             SCN_EXPECT(size() >= off);
             return span<T>(data() + off, size() - off);
         }
-        constexpr span<T> subspan(index_type off, difference_type count) const
+        SCN_CONSTEXPR14 span<T> subspan(index_type off,
+                                        difference_type count) const
         {
             SCN_EXPECT(size() > off + count);
             SCN_EXPECT(count > 0);

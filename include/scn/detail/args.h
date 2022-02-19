@@ -19,6 +19,7 @@
 #define SCN_DETAIL_ARGS_H
 
 #include "fwd.h"
+#include "reader/common.h"
 #include "result.h"
 #include "util.h"
 
@@ -113,14 +114,8 @@ namespace scn {
         template <typename Context, typename ParseCtx, typename T>
         error scan_custom_arg(void* arg, Context& ctx, ParseCtx& pctx) noexcept
         {
-            SCN_EXPECT(arg != nullptr);
-
-            scanner<typename Context::char_type, T> s;
-            auto err = pctx.parse(s);
-            if (!err) {
-                return err;
-            }
-            return s.scan(*static_cast<T*>(arg), ctx);
+            return visitor_boilerplate<scanner<T>>(*static_cast<T*>(arg), ctx,
+                                                   pctx);
         }
 
         struct monostate {
@@ -170,7 +165,8 @@ namespace scn {
             {
                 return m_custom;
             }
-            constexpr const custom_value& get_custom() const noexcept
+            SCN_NODISCARD constexpr const custom_value& get_custom()
+                const noexcept
             {
                 return m_custom;
             }
@@ -299,15 +295,15 @@ namespace scn {
             return m_type != detail::none_type;
         }
 
-        constexpr detail::type type() const noexcept
+        SCN_NODISCARD constexpr detail::type type() const noexcept
         {
             return type;
         }
-        constexpr bool is_integral() const noexcept
+        SCN_NODISCARD constexpr bool is_integral() const noexcept
         {
             return detail::is_integral(m_type);
         }
-        constexpr bool is_arithmetic() const noexcept
+        SCN_NODISCARD constexpr bool is_arithmetic() const noexcept
         {
             return detail::is_arithmetic(m_type);
         }
@@ -492,6 +488,21 @@ namespace scn {
         return {detail::ctx_tag<Context>(), detail::parse_ctx_tag<ParseCtx>(),
                 args...};
     }
+    template <typename WrappedRange,
+              typename Format,
+              typename... Args,
+              typename CharT = typename WrappedRange::char_type>
+    arg_store<CharT, Args...> make_args_for(WrappedRange&,
+                                            Format,
+                                            Args&... args)
+    {
+        using context_type = basic_context<WrappedRange>;
+        using parse_context_type =
+            typename detail::parse_context_template_for_format<
+                Format>::template type<typename context_type::char_type>;
+        return {detail::ctx_tag<context_type>(),
+                detail::parse_ctx_tag<parse_context_type>(), args...};
+    }
 
     template <typename CharT>
     class basic_args {
@@ -518,7 +529,8 @@ namespace scn {
             return do_get(i);
         }
 
-        SCN_CONSTEXPR14 bool check_id(std::ptrdiff_t i) const noexcept
+        SCN_NODISCARD SCN_CONSTEXPR14 bool check_id(
+            std::ptrdiff_t i) const noexcept
         {
             if (!is_packed()) {
                 return static_cast<size_t>(i) <
@@ -528,7 +540,7 @@ namespace scn {
             return type(i) != detail::none_type;
         }
 
-        constexpr size_t max_size() const noexcept
+        SCN_NODISCARD constexpr size_t max_size() const noexcept
         {
             return is_packed()
                        ? static_cast<size_t>(detail::max_packed_args)
@@ -543,12 +555,12 @@ namespace scn {
             arg_type* m_args;
         };
 
-        constexpr bool is_packed() const noexcept
+        SCN_NODISCARD constexpr bool is_packed() const noexcept
         {
             return (m_types & detail::is_unpacked_bit) == 0;
         }
 
-        SCN_CONSTEXPR14 typename detail::type type(
+        SCN_NODISCARD SCN_CONSTEXPR14 typename detail::type type(
             std::ptrdiff_t i) const noexcept
         {
             size_t shift = static_cast<size_t>(i) * detail::packed_arg_bitsize;

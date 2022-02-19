@@ -59,6 +59,9 @@ namespace scn {
         struct priority_tag<0> {
         };
 
+        struct dummy_type {
+        };
+
         template <typename T>
         struct dependent_false : std::false_type {
         };
@@ -131,9 +134,7 @@ namespace scn {
             }
             unique_ptr& operator=(unique_ptr&& p) noexcept
             {
-                if (m_ptr) {
-                    delete m_ptr;
-                }
+                delete m_ptr;
                 m_ptr = p.m_ptr;
                 p.m_ptr = nullptr;
                 return *this;
@@ -141,9 +142,9 @@ namespace scn {
 
             ~unique_ptr() noexcept
             {
-                if (m_ptr) {
-                    delete m_ptr;
-                }
+                SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
+                delete m_ptr;
+                SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
             }
 
             constexpr explicit operator bool() const noexcept
@@ -181,7 +182,9 @@ namespace scn {
         template <typename T, typename... Args>
         unique_ptr<T> make_unique(Args&&... a)
         {
+            SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
             return unique_ptr<T>(new T(SCN_FWD(a)...));
+            SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
         }
 
         template <typename T, std::size_t N>
@@ -203,7 +206,7 @@ namespace scn {
                 SCN_EXPECT(i < size());
                 return m_data[i];
             }
-            constexpr const_reference operator[](size_type i) const
+            SCN_CONSTEXPR14 const_reference operator[](size_type i) const
             {
                 SCN_EXPECT(i < size());
                 return m_data[i];
@@ -244,7 +247,7 @@ namespace scn {
                 return m_data;
             }
 
-            constexpr size_type size() const noexcept
+            SCN_NODISCARD constexpr size_type size() const noexcept
             {
                 return N;
             }

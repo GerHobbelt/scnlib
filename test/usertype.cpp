@@ -29,16 +29,16 @@ struct user_type3 {
 };
 
 namespace scn {
-    template <typename CharT>
-    struct scanner<CharT, user_type> : public scn::empty_parser {
+    template <>
+    struct scanner<user_type> : public scn::empty_parser {
         template <typename Context>
         error scan(user_type& val, Context& ctx)
         {
             return scan_usertype(ctx, "[{}, {}]", val.val1, val.val2);
         }
     };
-    template <typename CharT>
-    struct scanner<CharT, user_type2> : public scn::empty_parser {
+    template <>
+    struct scanner<user_type2> : public scn::empty_parser {
         template <typename Context>
         error scan(user_type2& val, Context& ctx)
         {
@@ -48,17 +48,16 @@ namespace scn {
             return vscan_usertype(ctx, "[{}, {}]", {args});
         }
     };
-    template <typename CharT>
-    struct scanner<CharT, user_type3> : public scn::empty_parser {
+    template <>
+    struct scanner<user_type3> : public scn::empty_parser {
         template <typename Context>
         error scan(user_type3& val, Context& ctx)
         {
-            using pctx_type =
-                basic_parse_context<typename Context::locale_type>;
             int i, j;
-            auto args = make_args<Context, pctx_type>(i, j);
-            auto newctx = Context(ctx.range());
-            auto pctx = pctx_type("[{}, {}]", newctx);
+            auto format = string_view{"[{}, {}]"};
+            auto newctx = make_context(ctx.range());
+            auto pctx = make_parse_context(format, newctx.locale());
+            auto args = make_args_for(newctx.range(), format, i, j);
             auto err = visit(newctx, pctx, {args});
             ctx.range() = std::move(newctx.range());
             if (err) {
@@ -123,14 +122,13 @@ struct non_default_construct {
 namespace scn {
     SCN_CLANG_PUSH
     SCN_CLANG_IGNORE("-Wpadded")
-    template <typename CharT>
-    struct scanner<CharT, optional<non_default_construct>>
-        : public scanner<CharT, int> {
+    template <>
+    struct scanner<optional<non_default_construct>> : public scanner<int> {
         template <typename Context>
         error scan(optional<non_default_construct>& val, Context& ctx)
         {
             int tmp{};
-            auto ret = scanner<CharT, int>::scan(tmp, ctx);
+            auto ret = scanner<int>::scan(tmp, ctx);
             if (!ret) {
                 return ret;
             }

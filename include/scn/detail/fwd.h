@@ -40,28 +40,50 @@ namespace scn {
     // locale.h
 
     template <typename CharT>
-    class basic_default_locale_ref;
-    template <typename CharT>
     class basic_locale_ref;
 
     // context.h
 
-    template <typename WrappedRange,
-              typename LocaleRef =
-                  basic_default_locale_ref<typename WrappedRange::char_type>>
+    template <typename WrappedRange>
     class basic_context;
 
     // parse_context.h
 
-    template <typename Locale>
+    template <typename CharT>
     class basic_parse_context;
-    template <typename Locale>
+    template <typename CharT>
     class basic_empty_parse_context;
 
-    // reader.h
+    namespace detail {
+        template <typename T>
+        struct parse_context_template_for_format;
+    }
 
-    template <typename CharT, typename T, typename Enable = void>
+    // reader/common.h
+
+    template <typename T, typename Enable = void>
     struct scanner;
+
+    // defined here to avoid including <scn.h> if the user wants to create a
+    // scanner for their own type
+    struct parser_base {
+        static constexpr bool skip_preceding_whitespace()
+        {
+            return true;
+        }
+        static constexpr bool support_align_and_fill()
+        {
+            return false;
+        }
+    };
+    struct empty_parser;
+    struct common_parser;
+    struct common_parser_default;
+
+    namespace detail {
+        template <typename T>
+        struct simple_integer_scanner;
+    }
 
     // result.h
 

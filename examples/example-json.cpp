@@ -30,7 +30,7 @@ struct string_list {
 namespace scn {
     SCN_BEGIN_NAMESPACE
     template <>
-    struct scanner<char, string_list> : public scn::empty_parser {
+    struct scanner<string_list> : public empty_parser {
         template <typename Context>
         error scan(string_list& val, Context& ctx)
         {
@@ -43,7 +43,7 @@ namespace scn {
         }
     };
     SCN_END_NAMESPACE
-}
+}  // namespace scn
 
 
 

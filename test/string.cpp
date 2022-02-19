@@ -47,6 +47,18 @@ TEST_CASE_TEMPLATE("string test", CharT, char, wchar_t)
         CHECK(!e);
         CHECK(e.error() == scn::error::invalid_format_string);
     }
+    {
+        string_type s{};
+
+        auto e = do_scan<CharT>(" space", "{}", s);
+        CHECK(e);
+        CHECK(s == widen<CharT>("space"));
+        s.clear();
+
+        e = do_scan<CharT>(" space", " {}", s);
+        CHECK(e);
+        CHECK(s == widen<CharT>("space"));
+    }
 }
 
 TEST_CASE_TEMPLATE("getline", CharT, char, wchar_t)
