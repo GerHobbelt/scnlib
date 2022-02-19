@@ -121,15 +121,6 @@ namespace scn {
         using arg_type = basic_arg<char_type>;
         auto arg = arg_type{};
 
-#if 0
-        {
-            auto ret = skip_range_whitespace(ctx, false);
-            if (!ret) {
-                return ret;
-            }
-        }
-#endif
-
         while (pctx) {
             if (pctx.should_skip_ws()) {
                 // Skip whitespace from format string and from stream
@@ -158,9 +149,11 @@ namespace scn {
                             "Unexpected end of format string"};
                 }
                 // Check for any non-specifier {foo} characters
-                auto ret = read_char(ctx.range());
+                unsigned char buf[4] = {0};
+                auto ret =
+                    read_code_point(ctx.range(), make_span(buf, 4), false);
                 SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
-                if (!ret || !pctx.check_literal(ret.value())) {
+                if (!ret || !pctx.check_literal(ret.value().chars)) {
                     auto rb = ctx.range().reset_to_rollback_point();
                     if (!rb) {
                         // Failed rollback
@@ -177,7 +170,10 @@ namespace scn {
                             "found in the stream"};
                 }
                 // Bump pctx to next char
-                pctx.advance();
+                auto e = pctx.advance_cp();
+                if (!e) {
+                    return e;
+                }
             }
             else {
                 // Scan argument
@@ -229,7 +225,10 @@ namespace scn {
                 // Handle next arg and bump pctx
                 pctx.arg_handled();
                 if (pctx) {
-                    pctx.advance();
+                    auto e = pctx.advance_cp();
+                    if (!e) {
+                        return e;
+                    }
                 }
             }
         }

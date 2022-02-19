@@ -44,11 +44,31 @@ namespace scn {
             template <typename Context>
             error scan(typename Context::char_type& val, Context& ctx)
             {
-                auto ch = read_char(ctx.range());
+                auto ch = read_code_unit(ctx.range());
                 if (!ch) {
                     return ch.error();
                 }
                 val = ch.value();
+                return {};
+            }
+        };
+
+        struct code_point_scanner : char_scanner {
+            template <typename Context>
+            error scan(utf8::code_point& val, Context& ctx)
+            {
+                using char_type = typename Context::char_type;
+                if (!std::is_same<char_type, char>::value) {
+                    return {error::invalid_operation,
+                            "Can only scan a code_point from a narrow range"};
+                }
+
+                unsigned char buf[4] = {0};
+                auto cp = read_code_point(ctx.range(), make_span(buf, 4), true);
+                if (!cp) {
+                    return cp.error();
+                }
+                val = cp.value().cp;
                 return {};
             }
         };
@@ -179,19 +199,21 @@ namespace scn {
                         return {};
                     }
 
-                    auto tmp = read_char(ctx.range());
-                    if (!tmp) {
-                        return tmp.error();
+                    unsigned char buf[4] = {0};
+                    auto cp =
+                        read_code_point(ctx.range(), make_span(buf, 4), true);
+                    if (!cp) {
+                        return cp.error();
                     }
-                    if (tmp.value() == detail::ascii_widen<char_type>('0')) {
+                    if (cp.value().cp == detail::ascii_widen<char_type>('0')) {
                         val = false;
                         return {};
                     }
-                    if (tmp.value() == detail::ascii_widen<char_type>('1')) {
+                    if (cp.value().cp == detail::ascii_widen<char_type>('1')) {
                         val = true;
                         return {};
                     }
-                    auto pb = putback_n(ctx.range(), 1);
+                    auto pb = putback_n(ctx.range(), cp.value().chars.ssize());
                     if (!pb) {
                         return pb;
                     }
