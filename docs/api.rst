@@ -430,7 +430,13 @@ Scanner
 
 Values are eventually scanned using a ``scn::scanner``.
 
-.. doxygenclass:: scn::empty_parser
+.. doxygenstruct:: scn::parser_base
+    :members:
+.. doxygenstruct:: scn::empty_parser
+    :members:
+.. doxygenstruct:: scn::common_parser
+    :members:
+.. doxygenstruct:: scn::common_parser_default
     :members:
 
 .. doxygenfunction:: scan_usertype
@@ -441,6 +447,10 @@ Low-level range reading
 
 The following functions abstract away the source range in easier to understand parsing operations.
 
+.. doxygenfunction:: read_code_unit
+.. doxygenstruct:: scn::read_code_point_result
+    :members:
+.. doxygenfunction:: read_code_point
 .. doxygenfunction:: read_zero_copy
 .. doxygenfunction:: read_all_zero_copy
 .. doxygenfunction:: read_into

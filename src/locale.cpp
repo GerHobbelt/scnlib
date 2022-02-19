@@ -32,8 +32,18 @@ namespace scn {
     SCN_BEGIN_NAMESPACE
 
     namespace detail {
+        template <typename CharT>
         struct locale_data {
-            std::locale global_locale;
+            using char_type = CharT;
+            using string_type = std::basic_string<char_type>;
+
+            std::locale global_locale{std::locale()};
+            std::locale classic_locale{std::locale::classic()};
+
+            string_type truename{};
+            string_type falsename{};
+            char_type decimal_point{};
+            char_type thousands_separator{};
         };
 
         template <typename CharT>
@@ -43,10 +53,16 @@ namespace scn {
             return *static_cast<const std::locale*>(l.get_locale());
         }
 
+        // Buggy on gcc 5 and 6
+        SCN_GCC_PUSH
+        SCN_GCC_IGNORE("-Wmaybe-uninitialized")
+
         template <typename CharT>
         basic_custom_locale_ref<CharT>::basic_custom_locale_ref()
         {
-            m_global_locale = new std::locale{};
+            auto data = new locale_data<CharT>{};
+            m_data = data;
+            m_locale = &data->global_locale;
             _initialize();
         }
         template <typename CharT>
@@ -54,56 +70,53 @@ namespace scn {
             const void* locale)
             : m_locale(locale)
         {
+            auto data = new locale_data<CharT>{};
+            m_data = data;
             if (!locale) {
-                m_global_locale = new std::locale{};
-                m_locale = m_global_locale;
+                m_locale = &data->global_locale;
             }
             _initialize();
         }
+
+        SCN_GCC_POP
 
         template <typename CharT>
         void basic_custom_locale_ref<CharT>::_initialize()
         {
             const auto& facet =
                 std::use_facet<std::numpunct<CharT>>(to_locale(*this));
-            m_truename = facet.truename();
-            m_falsename = facet.falsename();
-            m_decimal_point = facet.decimal_point();
-            m_thousands_separator = facet.thousands_sep();
+
+            auto& data = *static_cast<locale_data<CharT>*>(m_data);
+            data.truename = facet.truename();
+            data.falsename = facet.falsename();
+            data.decimal_point = facet.decimal_point();
+            data.thousands_separator = facet.thousands_sep();
         }
 
         template <typename CharT>
         basic_custom_locale_ref<CharT>::basic_custom_locale_ref(
             basic_custom_locale_ref&& o)
         {
-            if (o.m_global_locale) {
-                m_global_locale = o.m_global_locale;
-                m_locale = m_global_locale;
-                o.m_global_locale = nullptr;
-                o.m_locale = nullptr;
-            }
-            else {
-                m_locale = o.m_locale;
-                o.m_locale = nullptr;
-            }
+            m_data = o.m_data;
+            m_locale = o.m_locale;
+
+            o.m_data = nullptr;
+            o.m_locale = nullptr;
+
             _initialize();
         }
         template <typename CharT>
         auto basic_custom_locale_ref<CharT>::operator=(
             basic_custom_locale_ref&& o) -> basic_custom_locale_ref&
         {
-            delete static_cast<std::locale*>(m_global_locale);
+            delete static_cast<locale_data<CharT>*>(m_data);
 
-            if (o.m_global_locale) {
-                m_global_locale = o.m_global_locale;
-                m_locale = m_global_locale;
-                o.m_global_locale = nullptr;
-                o.m_locale = nullptr;
-            }
-            else {
-                m_locale = o.m_locale;
-                o.m_locale = nullptr;
-            }
+            m_data = o.m_data;
+            m_locale = o.m_locale;
+
+            o.m_data = nullptr;
+            o.m_locale = nullptr;
+
             _initialize();
 
             return *this;
@@ -112,7 +125,29 @@ namespace scn {
         template <typename CharT>
         basic_custom_locale_ref<CharT>::~basic_custom_locale_ref()
         {
-            delete static_cast<std::locale*>(m_global_locale);
+            delete static_cast<locale_data<CharT>*>(m_data);
+        }
+
+        template <typename CharT>
+        auto basic_custom_locale_ref<CharT>::make_classic()
+            -> basic_custom_locale_ref
+        {
+            basic_custom_locale_ref loc{};
+            loc.convert_to_classic();
+            return loc;
+        }
+
+        template <typename CharT>
+        void basic_custom_locale_ref<CharT>::convert_to_classic()
+        {
+            m_locale =
+                &static_cast<locale_data<CharT>*>(m_data)->classic_locale;
+        }
+        template <typename CharT>
+        void basic_custom_locale_ref<CharT>::convert_to_global()
+        {
+            SCN_EXPECT(m_data);
+            m_locale = &static_cast<locale_data<CharT>*>(m_data)->global_locale;
         }
 
         template <typename CharT>
@@ -124,6 +159,36 @@ namespace scn {
         bool basic_custom_locale_ref<CharT>::do_is_digit(char_type ch) const
         {
             return std::isdigit(ch, to_locale(*this));
+        }
+
+        template <typename CharT>
+        auto basic_custom_locale_ref<CharT>::do_decimal_point() const
+            -> char_type
+        {
+            return static_cast<locale_data<CharT>*>(m_data)->decimal_point;
+        }
+        template <typename CharT>
+        auto basic_custom_locale_ref<CharT>::do_thousands_separator() const
+            -> char_type
+        {
+            return static_cast<locale_data<CharT>*>(m_data)
+                ->thousands_separator;
+        }
+        template <typename CharT>
+        auto basic_custom_locale_ref<CharT>::do_truename() const
+            -> string_view_type
+        {
+            const auto& str =
+                static_cast<locale_data<CharT>*>(m_data)->truename;
+            return {str.data(), str.size()};
+        }
+        template <typename CharT>
+        auto basic_custom_locale_ref<CharT>::do_falsename() const
+            -> string_view_type
+        {
+            const auto& str =
+                static_cast<locale_data<CharT>*>(m_data)->falsename;
+            return {str.data(), str.size()};
         }
 
         static inline error convert_to_wide_impl(const std::locale& locale,
@@ -244,33 +309,33 @@ namespace scn {
             return std::isdigit(ch[0], locale);
         }
 
-#define SCN_DEFINE_CUSTOM_LOCALE_CTYPE(f)                                  \
-    template <typename CharT>                                              \
-    bool basic_custom_locale_ref<CharT>::is_##f(char_type ch) const        \
-    {                                                                      \
-        return std::is##f(ch, to_locale(*this));                           \
-    }                                                                      \
-    template <typename CharT>                                              \
-    bool basic_custom_locale_ref<CharT>::is_##f(utf8::code_point cp) const \
-    {                                                                      \
-        return std::is##f(static_cast<wchar_t>(cp), to_locale(*this));     \
-    }                                                                      \
-    template <typename CharT>                                              \
-    bool basic_custom_locale_ref<CharT>::is_##f(span<const char_type> ch)  \
-        const                                                              \
-    {                                                                      \
-        const auto& locale = to_locale(*this);                             \
-        if (sizeof(CharT) == 1) {                                          \
-            SCN_EXPECT(ch.size() >= 1);                                    \
-            auto wch = convert_to_wide_impl(locale, ch.data(),             \
-                                            ch.data() + ch.size());        \
-            if (!wch) {                                                    \
-                return false;                                              \
-            }                                                              \
-            return std::is##f(wch.value(), locale);                        \
-        }                                                                  \
-        SCN_EXPECT(ch.size() == 1);                                        \
-        return std::is##f(ch[0], locale);                                  \
+#define SCN_DEFINE_CUSTOM_LOCALE_CTYPE(f)                                 \
+    template <typename CharT>                                             \
+    bool basic_custom_locale_ref<CharT>::is_##f(char_type ch) const       \
+    {                                                                     \
+        return std::is##f(ch, to_locale(*this));                          \
+    }                                                                     \
+    template <typename CharT>                                             \
+    bool basic_custom_locale_ref<CharT>::is_##f(code_point cp) const      \
+    {                                                                     \
+        return std::is##f(static_cast<wchar_t>(cp), to_locale(*this));    \
+    }                                                                     \
+    template <typename CharT>                                             \
+    bool basic_custom_locale_ref<CharT>::is_##f(span<const char_type> ch) \
+        const                                                             \
+    {                                                                     \
+        const auto& locale = to_locale(*this);                            \
+        if (sizeof(CharT) == 1) {                                         \
+            SCN_EXPECT(ch.size() >= 1);                                   \
+            auto wch = convert_to_wide_impl(locale, ch.data(),            \
+                                            ch.data() + ch.size());       \
+            if (!wch) {                                                   \
+                return false;                                             \
+            }                                                             \
+            return std::is##f(wch.value(), locale);                       \
+        }                                                                 \
+        SCN_EXPECT(ch.size() == 1);                                       \
+        return std::is##f(ch[0], locale);                                 \
     }
         SCN_DEFINE_CUSTOM_LOCALE_CTYPE(alnum)
         SCN_DEFINE_CUSTOM_LOCALE_CTYPE(alpha)
@@ -284,12 +349,12 @@ namespace scn {
 #undef SCN_DEFINE_CUSTOM_LOCALE_CTYPE
 
         template <typename CharT>
-        bool basic_custom_locale_ref<CharT>::is_space(utf8::code_point cp) const
+        bool basic_custom_locale_ref<CharT>::is_space(code_point cp) const
         {
             return std::isspace(static_cast<wchar_t>(cp), to_locale(*this));
         }
         template <typename CharT>
-        bool basic_custom_locale_ref<CharT>::is_digit(utf8::code_point cp) const
+        bool basic_custom_locale_ref<CharT>::is_digit(code_point cp) const
         {
             return std::isdigit(static_cast<wchar_t>(cp), to_locale(*this));
         }
@@ -302,7 +367,7 @@ namespace scn {
                 .is(std::ctype_base::blank, ch);
         }
         template <typename CharT>
-        bool basic_custom_locale_ref<CharT>::is_blank(utf8::code_point ch) const
+        bool basic_custom_locale_ref<CharT>::is_blank(code_point ch) const
         {
             return std::use_facet<std::ctype<wchar_t>>(to_locale(*this))
                 .is(std::ctype_base::blank, static_cast<wchar_t>(ch));

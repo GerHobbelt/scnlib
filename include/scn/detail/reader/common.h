@@ -20,61 +20,85 @@
 
 #include "../locale.h"
 #include "../range.h"
-#include "../utf8.h"
+#include "../unicode/unicode.h"
 
 namespace scn {
     SCN_BEGIN_NAMESPACE
 
     // read_code_unit
 
-    /// @{
+    namespace detail {
+        template <typename WrappedRange>
+        expected<typename WrappedRange::char_type>
+        read_code_unit_impl(WrappedRange& r, bool advance, std::true_type)
+        {
+            auto ch = *r.begin();
+            if (advance) {
+                r.advance();
+            }
+            return {ch};
+        }
+        template <typename WrappedRange>
+        expected<typename WrappedRange::char_type>
+        read_code_unit_impl(WrappedRange& r, bool advance, std::false_type)
+        {
+            auto ch = *r.begin();
+            if (advance && ch) {
+                r.advance();
+            }
+            return ch;
+        }
+    }  // namespace detail
+
     /**
-     * Reads a single character from the range.
-     * If `r.begin() == r.end()`, returns EOF.
+     * Reads a single character (= code unit) from the range.
      * Dereferences the begin iterator, wrapping it in an `expected` if
      * necessary.
-     * If the reading was successful, and `advance` is `true`, the range is
-     * advanced by a single character.
+     *
+     * Encoding-agnostic, doesn't care about code points, and may leave behind
+     * partial ones.
+     *
+     * \param r Range to read from
+     * \param advance If `true`, and the read was successful, the range is
+     * advanced by a single character, as if by calling `r.advance()`.
+     *
+     * \return The next character in the range, obtained as if by dereferencing
+     * the begin iterator `*r.begin()`.
+     * If `r.begin() == r.end()`, returns EOF.
+     * If `r` is direct, returns `*r.begin()` wrapped in an `expected`.
+     * If `r` is not direct, returns `*r.begin()` as-is, with any errors that
+     * may have been caused by the read.
      */
-    template <typename WrappedRange,
-              typename std::enable_if<WrappedRange::is_direct>::type* = nullptr>
-    expected<ranges::range_value_t<WrappedRange>> read_code_unit(
+    template <typename WrappedRange>
+    expected<typename WrappedRange::char_type> read_code_unit(
         WrappedRange& r,
         bool advance = true)
     {
         if (r.begin() == r.end()) {
             return error(error::end_of_range, "EOF");
         }
-        auto ch = *r.begin();
-        if (advance) {
-            r.advance();
-        }
-        return {ch};
+        return detail::read_code_unit_impl(
+            r, advance,
+            std::integral_constant<bool, WrappedRange::is_direct>{});
     }
-    template <
-        typename WrappedRange,
-        typename std::enable_if<!WrappedRange::is_direct>::type* = nullptr>
-    ranges::range_value_t<WrappedRange> read_code_unit(WrappedRange& r,
-                                                       bool advance = true)
-    {
-        if (r.begin() == r.end()) {
-            return error(error::end_of_range, "EOF");
-        }
-        auto ch = *r.begin();
-        if (advance && ch) {
-            r.advance();
-        }
-        return ch;
-    }
-    /// @}
 
     // putback_n
 
     /// @{
 
     /**
-     * Puts back `n` characters into `r` as if by repeatedly calling
-     * `r.advance(-1)` .
+     * Puts back `n` characters (= code units) into `r` as if by repeatedly
+     * calling `r.advance(-1)`.
+     *
+     * Encoding-agnostic, may leave behind partial code points.
+     *
+     * \param r Range to roll back
+     * \param n Characters to put back, must be less than or equal to the number
+     * of characters already read from `r`.
+     *
+     * \return If `r` is contiguous, will always return `error::good`.
+     * Otherwise, may return `error::unrecoverable_source_error`, if the putback
+     * fails.
      */
     template <
         typename WrappedRange,
@@ -103,106 +127,117 @@ namespace scn {
 
     // read_code_point
 
-    template <typename CharT, typename CP>
+    /**
+     * Type returned by `read_code_point`
+     * \tparam CharT Character type of the range
+     */
+    template <typename CharT>
     struct read_code_point_result {
+        /// Code units, may point to `writebuf` given to `read_code_point`
         span<const CharT> chars;
-        CP cp;
+        /// Parsed code point
+        code_point cp;
     };
 
     namespace detail {
-        using narrow_read_code_point_result_type =
-            read_code_point_result<char, utf8::code_point>;
-        using wide_read_code_point_result_type =
-            read_code_point_result<wchar_t, wchar_t>;
-
         // contiguous && direct
-        template <typename WrappedRange>
-        expected<narrow_read_code_point_result_type> read_code_point_impl(
+        template <typename CharT, typename WrappedRange>
+        expected<read_code_point_result<CharT>> read_code_point_impl(
             WrappedRange& r,
-            span<char>,
-            bool parse_code_point,
+            span<CharT>,
+            bool do_parse,
             std::true_type)
         {
             if (r.begin() == r.end()) {
                 return error(error::end_of_range, "EOF");
             }
-            char first = *r.begin();
-            int len = utf8::get_sequence_length(first);
+
+            CharT first = *r.begin();
+            int len = ::scn::get_sequence_length(first);
             if (SCN_UNLIKELY(len == 0 || r.size() < len)) {
-                return error(error::invalid_encoding,
-                             "Invalid utf8 code point");
+                return error(error::invalid_encoding, "Invalid code point");
             }
             if (len == 1) {
+                // Single-char code point
                 auto s = make_span(r.data(), 1).as_const();
                 r.advance();
-                return narrow_read_code_point_result_type{
-                    s, utf8::make_code_point(first)};
+                return read_code_point_result<CharT>{s, make_code_point(first)};
             }
 
-            utf8::code_point cp{};
-            if (parse_code_point) {
-                auto ret =
-                    utf8::parse_code_point(r.begin(), r.begin() + len, cp);
+            code_point cp{};
+            if (do_parse) {
+                auto ret = parse_code_point(r.begin(), r.begin() + len, cp);
                 if (!ret) {
+                    auto pb = putback_n(r, len);
+                    if (!pb) {
+                        return pb;
+                    }
                     return ret.error();
                 }
             }
             auto s = make_span(r.data(), static_cast<size_t>(len)).as_const();
             r.advance(len);
-            return narrow_read_code_point_result_type{s, cp};
+            return read_code_point_result<CharT>{s, cp};
         }
 
-        template <typename WrappedRange>
-        expected<narrow_read_code_point_result_type> read_code_point_impl(
+        template <typename CharT, typename WrappedRange>
+        expected<read_code_point_result<CharT>> read_code_point_impl(
             WrappedRange& r,
-            span<char> writebuf,
-            bool parse_code_point,
+            span<CharT> writebuf,
+            bool do_parse,
             std::false_type)
         {
             auto first = read_code_unit(r, false);
             if (!first) {
                 return first.error();
             }
+
             auto len =
-                static_cast<size_t>(utf8::get_sequence_length(first.value()));
+                static_cast<size_t>(::scn::get_sequence_length(first.value()));
             if (SCN_UNLIKELY(len == 0)) {
-                return error(error::invalid_encoding,
-                             "Invalid utf8 code point");
+                return error(error::invalid_encoding, "Invalid code point");
             }
+            r.advance();
+
             if (len == 1) {
+                // Single-char code point
                 writebuf[0] = first.value();
-                r.advance();
-                return narrow_read_code_point_result_type{
+                return read_code_point_result<CharT>{
                     make_span(writebuf.data(), 1).as_const(),
-                    utf8::make_code_point(first.value())};
+                    make_code_point(first.value())};
             }
 
             size_t index = 1;
 
-            auto parse = [&]() -> expected<narrow_read_code_point_result_type> {
-                utf8::code_point cp{};
-                if (parse_code_point) {
-                    auto ret = utf8::parse_code_point(
-                        writebuf.data(), writebuf.data() + len, cp);
+            auto parse = [&]() -> expected<read_code_point_result<CharT>> {
+                code_point cp{};
+                if (do_parse) {
+                    auto ret = parse_code_point(writebuf.data(),
+                                                writebuf.data() + len, cp);
                     if (!ret) {
-                        auto err =
+                        auto pb =
                             putback_n(r, static_cast<std::ptrdiff_t>(len));
-                        if (!err) {
-                            return err;
+                        if (!pb) {
+                            return pb;
                         }
                         return ret.error();
                     }
                 }
                 auto s = make_span(writebuf.data(), len).as_const();
-                return narrow_read_code_point_result_type{s, cp};
+                return read_code_point_result<CharT>{s, cp};
             };
             auto advance = [&]() -> error {
                 auto ret = read_code_unit(r, false);
                 if (!ret) {
+                    auto pb = putback_n(r, static_cast<std::ptrdiff_t>(index));
+                    if (!pb) {
+                        return pb;
+                    }
                     return ret.error();
                 }
                 writebuf[index] = ret.value();
                 ++index;
+                r.advance();
                 return {};
             };
 
@@ -220,61 +255,67 @@ namespace scn {
         }
     }  // namespace detail
 
-    template <
-        typename WrappedRange,
-        typename BufValueT,
-        typename std::enable_if<std::is_same<typename WrappedRange::char_type,
-                                             char>::value>::type* = nullptr>
-    expected<detail::narrow_read_code_point_result_type> read_code_point(
-        WrappedRange& r,
-        span<BufValueT> writebuf,
-        bool parse_code_point)
+    /**
+     * Read a single Unicode code point from `r` as if by repeatedly calling
+     * `read_code_unit()`.
+     *
+     * Advances the range past the read code point. On error, rolls back the
+     * range into the state it was before calling this function, as if by
+     * calling `putback_n()`.
+     *
+     * \param r Range to read from
+     * \param writebuf Buffer to use for reading into, if necessary. `BufValueT`
+     * can be any trivial type. Must be at least 4 bytes long. May be written
+     * over.
+     * \param do_parse_code_point If `true`, the code units parsed will be
+     * parsed as if by calling `parse_code_point()`, and returned.
+     * If `false`, the returned code point will be equal to `U+00`.
+     *
+     * \return An instance of `read_code_point_result`, wrapped in an
+     * `expected`. `chars` contains the code units read from `r`, which may
+     * point to `writebuf`. `cp` contains the code point parsed, if
+     * `do_parse_code_point` is `true`.
+     * If `r.begin() == r.end()`, returns EOF.
+     * If `read_code_unit()` or `putback_n()` fails, returns any errors returned
+     * by it.
+     * If the code point was not encoded correctly, returns
+     * `error::invalid_encoding`.
+     */
+    template <typename WrappedRange, typename BufValueT>
+    expected<read_code_point_result<typename WrappedRange::char_type>>
+    read_code_point(WrappedRange& r,
+                    span<BufValueT> writebuf,
+                    bool do_parse_code_point)
     {
         SCN_EXPECT(writebuf.size() * sizeof(BufValueT) >= 4);
-        return detail::read_code_point_impl(
+        using char_type = typename WrappedRange::char_type;
+        return detail::read_code_point_impl<char_type>(
             r,
-            make_span(reinterpret_cast<char*>(writebuf.data()),
-                      writebuf.size() * sizeof(BufValueT)),
-            parse_code_point,
+            make_span(reinterpret_cast<char_type*>(writebuf.data()),
+                      writebuf.size() * sizeof(BufValueT) / sizeof(char_type)),
+            do_parse_code_point,
             std::integral_constant<bool, WrappedRange::is_contiguous>{});
-    }
-    template <
-        typename WrappedRange,
-        typename BufValueT,
-        typename std::enable_if<std::is_same<typename WrappedRange::char_type,
-                                             wchar_t>::value>::type* = nullptr>
-    expected<detail::wide_read_code_point_result_type> read_code_point(
-        WrappedRange& r,
-        span<BufValueT> writebuf,
-        bool parse_code_point)
-    {
-        SCN_UNUSED(parse_code_point);
-        SCN_EXPECT(writebuf.size() * sizeof(BufValueT) >= 4);
-
-        auto buf = make_span(reinterpret_cast<wchar_t*>(writebuf.data()),
-                             writebuf.size() * sizeof(BufValueT));
-        auto ret = read_code_unit(r, true);
-        if (!ret) {
-            return ret.error();
-        }
-        buf[0] = ret.value();
-        buf = buf.first(1);
-        return detail::wide_read_code_point_result_type{buf.as_const(),
-                                                        ret.value()};
     }
 
     // read_zero_copy
 
     /// @{
+
     /**
-     * Reads up to `n` characters from `r`, and returns a `span` into the range.
+     * Reads up to `n` characters (= code units) from `r`, as if by repeatedly
+     * incrementing `r.begin()`, and returns a `span` pointing into `r`.
+     *
+     * Let `count` be `min(r.size(), n)`.
+     * Reads, and advances `r` by `count` characters.
+     * `r.begin()` is in no point dereferenced.
+     * If `r.size()` is not defined, the range is not contiguous, and an empty
+     * span is returned.
+     *
+     * \return A `span` pointing to `r`, starting from `r.begin()` and with a
+     * size of `count`.
      * If `r.begin() == r.end()`, returns EOF.
      * If the range does not satisfy `contiguous_range`, returns an empty
      * `span`.
-     *
-     * Let `count` be `min(r.size(), n)`.
-     * Returns a span pointing to `r.data()` with the length `count`.
-     * Advances the range by `count` characters.
      */
     template <
         typename WrappedRange,
@@ -310,7 +351,16 @@ namespace scn {
 
     /// @{
     /**
-     * Reads every character from `r`, and returns a `span` into the range.
+     * Reads every character from `r`, as if by repeatedly incrementing
+     * `r.begin()`, and returns a `span` pointing into `r`.
+     *
+     * If there's no error, `r` is advanced to the end.
+     * `r.begin()` is in no point dereferenced.
+     * If `r.size()` is not defined, the range is not contiguous, and an empty
+     * span is returned.
+     *
+     * \return A `span` pointing to `r`, starting at `r.begin()` and ending at
+     * `r.end()`.
      * If `r.begin() == r.end()`, returns EOF.
      * If the range does not satisfy `contiguous_range`, returns an empty
      * `span`.
@@ -347,12 +397,24 @@ namespace scn {
     // read_into
 
     /// @{
+
     /**
-     * Reads `n` characters from `r` into `it`.
-     * If `r.begin() == r.end()` in the beginning or before advancing `n`
-     * characters, returns EOF. If `r` can't be advanced by `n` characters, the
-     * range is advanced by an indeterminate amout. If successful, the range is
-     * advanced by `n` characters.
+     * Reads up to `n` characters (= code units) from `r`, as if by repeatedly
+     * calling `read_code_unit()`, and writing the characters into `it`.
+     *
+     * If reading fails at any point, the error is returned.
+     * `r` is advanced by as many characters that were successfully read.
+     *
+     * \param r Range to read
+     * \param it Iterator to write into, e.g. `std::back_insert_iterator`. Must
+     * satisfy `output_iterator`, and be incrementable by `n` times.
+     * \param n Characters to read from `r`
+     *
+     * \return `error::good` if `n` characters were read.
+     * If `r.begin() == r.end()` at any point before `n` characters has been
+     * read, returns EOF.
+     * Any error returned by `read_code_unit()` if one
+     * occurred.
      */
     template <
         typename WrappedRange,
@@ -447,8 +509,8 @@ namespace scn {
                 }
             }
             else {
-                for (auto it = r.begin(); it != r.end(); ) {
-                    auto len = utf8::get_sequence_length(*it);
+                for (auto it = r.begin(); it != r.end();) {
+                    auto len = ::scn::get_sequence_length(*it);
                     if (ranges::distance(it, r.end()) < len) {
                         return error{error::invalid_encoding,
                                      "Invalid utf8 code point"};
@@ -473,47 +535,69 @@ namespace scn {
 
     // read_until_space_zero_copy
 
-    /// @{
+    namespace detail {
+        template <typename WrappedRange, typename Predicate>
+        expected<span<const typename WrappedRange::char_type>>
+        read_until_space_zero_copy_impl(WrappedRange& r,
+                                        Predicate&& is_space,
+                                        bool keep_final_space,
+                                        std::true_type)
+        {
+            return detail::read_until_pred_contiguous(r, SCN_FWD(is_space),
+                                                      true, keep_final_space);
+        }
+        template <typename WrappedRange, typename Predicate>
+        expected<span<const typename WrappedRange::char_type>>
+        read_until_space_zero_copy_impl(WrappedRange& r,
+                                        Predicate&&,
+                                        bool,
+                                        std::false_type)
+        {
+            if (r.begin() == r.end()) {
+                return error(error::end_of_range, "EOF");
+            }
+            return span<const typename WrappedRange::char_type>{};
+        }
+    }  // namespace detail
+
     /**
-     * Reads characters from `r` until a space is found (as determined by
-     * `is_space`), and returns a `span` into the range.
-     * If `r.begin() == r.end()`, returns EOF.
-     * If the range does not satisfy `contiguous_range`,
-     * returns an empty `span`.
+     * Reads code points from `r`, until a space, as determined by `is_space`,
+     * is found, and returns a `span` pointing to `r`.
      *
-     * \param is_space Predicate taking a character and returning a `bool`.
-     *                 `true` means, that the given character is a space.
-     * \param keep_final_space Whether the final found space character is
-     *                         included in the returned span,
-     *                         and is advanced past.
+     * If no error occurs `r` is advanced past the returned span.
+     * On error, `r` is not advanced.
+     *
+     * \param r Range to read from
+     *
+     * \param is_space Predicate taking a span of code units encompassing a code
+     * point, and returning a `bool`, where `true` means that the character is a
+     * space. Additionally, it must have a member function
+     * `is_space.is_multibyte()`, returning a `bool`, where `true` means that a
+     * space character can encompass multiple code units.
+     *
+     * \param keep_final_space If `true`, the space code point found is included
+     * in the returned span, and it is advanced past in `r`. If `false`, it is
+     * not included, and `r.begin()` will point to the space.
+     *
+     * \return Span of code units, pointing to `r`, starting at `r.begin()`, and
+     * ending at the space character, the precise location determined by the
+     * `keep_final_space` parameter.
+     * If `r.begin() == r.end()`, returns EOF.
+     * `r` reaching its end before a space character is found is not considered
+     * an error.
+     * If `r` contains invalid encoding, returns `error::invalid_encoding`.
+     * If the range is not contiguous, returns an empty `span`.
      */
-    template <
-        typename WrappedRange,
-        typename Predicate,
-        typename std::enable_if<WrappedRange::is_contiguous>::type* = nullptr>
+    template <typename WrappedRange, typename Predicate>
     expected<span<const typename WrappedRange::char_type>>
     read_until_space_zero_copy(WrappedRange& r,
                                Predicate&& is_space,
                                bool keep_final_space)
     {
-        return detail::read_until_pred_contiguous(r, SCN_FWD(is_space), true,
-                                                  keep_final_space);
+        return detail::read_until_space_zero_copy_impl(
+            r, SCN_FWD(is_space), keep_final_space,
+            std::integral_constant<bool, WrappedRange::is_contiguous>{});
     }
-    template <
-        typename WrappedRange,
-        typename Predicate,
-        typename std::enable_if<!WrappedRange::is_contiguous>::type* = nullptr>
-    expected<span<const typename detail::extract_char_type<
-        typename WrappedRange::iterator>::type>>
-    read_until_space_zero_copy(WrappedRange& r, Predicate&&, bool)
-    {
-        if (r.begin() == r.end()) {
-            return error(error::end_of_range, "EOF");
-        }
-        return span<const typename detail::extract_char_type<
-            typename WrappedRange::iterator>::type>{};
-    }
-    /// @}
 
     // read_until_space
 
@@ -581,14 +665,36 @@ namespace scn {
     /// @{
 
     /**
-     * Reads characters from `r` until a space is found (as determined by
-     * `is_space`) and writes them into `out`.
-     * If `r.begin() == r.end()`, returns EOF.
+     * Reads code points from `r`, until a space, as determined by `is_space`,
+     * is found, and writes them into `out`, a single code unit at a time.
      *
-     * \param is_space Predicate taking a character and returning a `bool`.
-     *                 `true` means, that the given character is a space.
-     * \param keep_final_space Whether the final found space character is
-     *                         written into `out` and is advanced past.
+     * If no error occurs, `r` is advanced past the last character written into
+     * `out`.
+     *
+     * On error, `r` is advanced an indeterminate amount, as if by calling
+     * `r.advance(n)`, where `n` is a non-negative integer.
+     * It is, however, not advanced past any space characters.
+     *
+     * \param r Range to read from
+     *
+     * \param out Iterator to write read characters into. Must satisfy
+     * `output_iterator`.
+     *
+     * \param is_space Predicate taking a span of code units encompassing a code
+     * point, and returning a `bool`, where `true` means that the character is a
+     * space. Additionally, it must have a member function
+     * `is_space.is_multibyte()`, returning a `bool`, where `true` means that a
+     * space character can encompass multiple code units.
+     *
+     * \param keep_final_space If `true`, the space code point found is written
+     * into `out`, and it is advanced past in `r`. If `false`, it is not
+     * included, and `r.begin()` will point to the space.
+     *
+     * \return `error::good` on success.
+     * If `r.begin() == r.end()`, returns EOF.
+     * `r` reaching its end before a space character is found is not considered
+     * an error.
+     * If `r` contains invalid encoding, returns `error::invalid_encoding`.
      */
     template <
         typename WrappedRange,
@@ -630,14 +736,10 @@ namespace scn {
     /// @{
 
     /**
-     * Reads characters from `r` until a space is found (as determined by
-     * `is_space`), or `out` reaches `end`, and writes them into `out`.
-     * If `r.begin() == r.end()`, returns EOF.
+     * Otherwise equivalent to `read_until_space`, except will also stop reading
+     * if `out == end`.
      *
-     * \param is_space Predicate taking a character and returning a `bool`.
-     *                 `true` means, that the given character is a space.
-     * \param keep_final_space Whether the final found space character is
-     *                         written into `out` and is advanced past.
+     * \see read_until_space
      */
     template <typename WrappedRange,
               typename OutputIterator,
@@ -658,11 +760,21 @@ namespace scn {
     /// @}
 
     namespace detail {
+        /**
+         * Predicate to pass to read_until_space etc.
+         */
         template <typename CharT>
         struct is_space_predicate {
             using char_type = CharT;
             using locale_type = basic_locale_ref<char_type>;
 
+            /**
+             * \param l Locale to use, fetched from `ctx.locale()`
+             * \param localized If `true`, use `l.get_custom()`, otherwise use
+             * `l.get_static()`.
+             * \param width If `width != 0`, limit the number of code
+             * units to be read
+             */
             SCN_CONSTEXPR14 is_space_predicate(const locale_type& l,
                                                bool localized,
                                                size_t width)
@@ -676,19 +788,36 @@ namespace scn {
                 }
             }
 
+            /**
+             * Returns `true` if `ch` is a code point according to the supplied
+             * locale, using either the static or custom locale, depending on
+             * the `localized` parameter given to the constructor.
+             *
+             * Returns also `true` if the maximum width, as determined by the
+             * `width` parameter given to the constructor, was reached.
+             */
             bool operator()(span<const char_type> ch)
             {
                 SCN_EXPECT(m_fn);
+                SCN_EXPECT(ch.size() >= 1);
                 return m_fn(m_locale, ch, m_i, m_width);
             }
 
+            /**
+             * Returns `true`, if `*this` uses the custom locale for classifying
+             * space characters
+             */
             constexpr bool is_localized() const
             {
                 return m_locale != nullptr;
             }
+            /**
+             * Returns `true` if a space character can encompass multiple code
+             * units
+             */
             constexpr bool is_multibyte() const
             {
-                return is_localized() && sizeof(CharT) != 1;
+                return is_localized() && is_multichar_type(CharT{});
             }
 
         private:
@@ -717,10 +846,11 @@ namespace scn {
                                                       size_t& i,
                                                       size_t max)
             {
-                if (i == max) {
+                SCN_EXPECT(i <= max);
+                if (i == max || i + ch.size() > max) {
                     return true;
                 }
-                ++i;
+                i += ch.size();
                 return static_locale_type::is_space(ch);
             }
             static bool localized_call_counting(
@@ -730,10 +860,11 @@ namespace scn {
                 size_t max)
             {
                 SCN_EXPECT(locale != nullptr);
-                if (i == max) {
+                SCN_EXPECT(i <= max);
+                if (i == max || i + ch.size() > max) {
                     return true;
                 }
-                ++i;
+                i += ch.size();
                 return locale->is_space(ch);
             }
 
@@ -792,10 +923,24 @@ namespace scn {
     /// @{
 
     /**
-     * Reads from the range in `ctx` as if by repeatedly calling
-     * `read_code_point()`, until a non-space character is found (as determined
-     * by `ctx.locale()`), or EOF is reached. That non-space character is en
-     * put back into the range.
+     * Reads code points from `ctx.range()`, as if by repeatedly calling
+     * `read_code_point()`, until a non-space character is found, or EOF is
+     * reached. That non-space character is then put back into the range.
+     *
+     * Whether a character is a space, is determined by `ctx.locale()` and the
+     * `localized` parameter.
+     *
+     * \param ctx Context to get the range and locale from.
+     *
+     * \param localized If `true`, `ctx.locale().get_custom()` is used.
+     * Otherwise, `ctx.locale().get_static()` is used.
+     * In practice, means whether locale-specific whitespace characters are
+     * accepted, or just those given by `std::isspace` with the `"C"` locale.
+     *
+     * \return `error::good` on success.
+     * If `ctx.range().begin() == ctx.range().end()`, returns EOF.
+     * If `ctx.range()` contains invalid encoding, returns
+     * `error::invalid_encoding`.
      */
     template <typename Context,
               typename std::enable_if<
@@ -827,11 +972,25 @@ namespace scn {
         template <typename T>
         struct simple_integer_scanner {
             template <typename CharT>
-            static expected<typename span<const CharT>::iterator>
-            scan(span<const CharT> buf, T& val, int base = 10);
+            static expected<typename span<const CharT>::iterator> scan(
+                span<const CharT> buf,
+                T& val,
+                int base = 10,
+                uint16_t flags = 0);
+
+            template <typename CharT>
+            static expected<typename span<const CharT>::iterator> scan_lower(
+                span<const CharT> buf,
+                T& val,
+                int base = 10,
+                uint16_t flags = 0);
         };
     }  // namespace detail
 
+    /**
+     * A very simple parser base class, which only accepts empty format string
+     * specifiers, e.g. `{}`, `{:}` or `{1:}`.
+     */
     struct empty_parser : parser_base {
         template <typename ParseCtx>
         error parse(ParseCtx& pctx)
@@ -849,12 +1008,23 @@ namespace scn {
         }
     };
 
+    /**
+     * Provides a framework for building a format string parser.
+     * Does not provide a `parse()` member function, so not a parser on to its
+     * own.
+     */
     struct common_parser : parser_base {
         static constexpr bool support_align_and_fill()
         {
             return true;
         }
 
+    protected:
+        /**
+         * Parse the beginning of the argument.
+         * Returns `error::invalid_format_string` if `!pctx` (the format string
+         * ended)
+         */
         template <typename ParseCtx>
         error parse_common_begin(ParseCtx& pctx)
         {
@@ -866,6 +1036,10 @@ namespace scn {
             return {};
         }
 
+        /**
+         * Returns `error::invalid_format_string` if the format string or the
+         * argument has ended.
+         */
         template <typename ParseCtx>
         error check_end(ParseCtx& pctx)
         {
@@ -876,6 +1050,12 @@ namespace scn {
             return {};
         }
 
+        /**
+         * Parse alignment, fill, width, and localization flags, and populate
+         * appropriate member variables.
+         *
+         * Returns `error::invalid_format_string` if an error occurred.
+         */
         template <typename ParseCtx>
         error parse_common_flags(ParseCtx& pctx)
         {
@@ -933,6 +1113,7 @@ namespace scn {
                 fill_char = static_cast<char32_t>(fill);
             };
 
+            // align and fill
             common_options_type align{};
             bool align_set = false;
             if (pctx.chars_left() > 1 &&
@@ -940,6 +1121,9 @@ namespace scn {
                 const auto peek = pctx.peek_char();
                 align = get_align_char(peek);
                 if (align != common_options_none) {
+                    // Arg is like "{:_x}", where _ is some fill character, and
+                    // x is an alignment flag
+                    // -> we have both alignment and fill
                     parse_align(align, ch);
 
                     auto e = next_char();
@@ -953,6 +1137,8 @@ namespace scn {
             if (!align_set) {
                 align = get_align_char(ch);
                 if (align != common_options_none) {
+                    // Arg is like "{:x}", where x is an alignment flag
+                    // -> we have alignment with default fill (space ' ')
                     parse_align(align, detail::ascii_widen<char_type>(' '));
                     if (!next_char()) {
                         return {};
@@ -960,6 +1146,7 @@ namespace scn {
                 }
             }
 
+            // digit -> width
             if (pctx.locale().get_static().is_digit(ch)) {
                 common_options |= width_set;
 
@@ -971,6 +1158,7 @@ namespace scn {
                 field_width = w;
                 return {};
             }
+            // L -> localized
             if (ch == detail::ascii_widen<char_type>('L')) {
                 common_options |= localized;
 
@@ -982,6 +1170,11 @@ namespace scn {
             return {};
         }
 
+        /**
+         * Parse argument end.
+         *
+         * Returns `error::invalid_format_string` if argument end was not found.
+         */
         template <typename ParseCtx>
         error parse_common_end(ParseCtx& pctx)
         {
@@ -993,12 +1186,39 @@ namespace scn {
             return {};
         }
 
+        /**
+         * A null callback to pass to `parse_common`, doing nothing and
+         * returning `error::good`.
+         */
         template <typename ParseCtx>
         static error null_type_cb(ParseCtx&, bool&)
         {
             return {};
         }
 
+    public:
+        /**
+         * Parse a format string argument, using `parse_common_begin`,
+         * `parse_common_flags`, `parse_common_end`, and the supplied type
+         * flags.
+         *
+         * `type_options.size() == type_flags.size()` must be `true`.
+         * `pctx` must be valid, and must start at the format string argument
+         * specifiers, e.g. in the case of `"{1:foo}"` -> `pctx == "foo}"`
+         *
+         * \param pctx Format string to parse
+         * \param type_options A span of characters, where each character
+         * corresponds to a valid type flag. For example, for characters, this
+         * span would be \c ['c']
+         * \param type_flags A span of bools, where the values will be set to
+         * `true`, if a corresponding type flag from `type_options` was found.
+         * Should be initialized to all-`false`, as a `false` value will not be
+         * written.
+         * \param type_cb A callback to call, if none of the `type_options`
+         * matched. Must have the signature `(ParseCtx& pctx, bool& parsed) ->
+         * error`., where `parsed` is set to `true`, if the flag at
+         * `pctx.next_char()` was parsed and advanced past.
+         */
         template <typename ParseCtx,
                   typename F,
                   typename CharT = typename ParseCtx::char_type>
@@ -1081,6 +1301,9 @@ namespace scn {
             return parse_common_end(pctx);
         }
 
+        /**
+         * Invoke `parse_common()` with default options (no type flags)
+         */
         template <typename ParseCtx>
         error parse_default(ParseCtx& pctx)
         {
@@ -1117,6 +1340,10 @@ namespace scn {
         uint8_t common_options{0};
     };
 
+    /**
+     * Derives from `common_parser`, and implements `parse()` with
+     * `parse_default()`
+     */
     struct common_parser_default : common_parser {
         template <typename ParseCtx>
         error parse(ParseCtx& pctx)
@@ -1203,6 +1430,12 @@ namespace scn {
             return {};
         }
 
+        /**
+         * Scan argument in `val`, from `ctx`, using `Scanner` and `pctx`.
+         *
+         * Parses `pctx` for `Scanner`, skips whitespace and alignment if
+         * necessary, and scans the argument into `val`.
+         */
         template <typename Scanner,
                   typename T,
                   typename Context,

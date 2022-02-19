@@ -47,6 +47,11 @@ namespace scn {
             return detail::visitor_boilerplate<detail::char_scanner>(
                 val, *m_ctx, *m_pctx);
         }
+        auto visit(code_point& val, detail::priority_tag<1>) -> error
+        {
+            return detail::visitor_boilerplate<detail::code_point_scanner>(
+                val, *m_ctx, *m_pctx);
+        }
         auto visit(span<char_type>& val, detail::priority_tag<1>) -> error
         {
             return detail::visitor_boilerplate<detail::span_scanner>(
@@ -170,9 +175,8 @@ namespace scn {
                             "found in the stream"};
                 }
                 // Bump pctx to next char
-                auto e = pctx.advance_cp();
-                if (!e) {
-                    return e;
+                if (!pctx.advance_cp()) {
+                    pctx.advance_char();
                 }
             }
             else {
@@ -188,12 +192,12 @@ namespace scn {
                     auto id = id_wrapped.value();
                     SCN_ENSURE(!id.empty());
                     if (ctx.locale().get_static().is_digit(id.front())) {
-                        auto s = detail::integer_scanner<std::ptrdiff_t>{};
-                        s.base = 10;
+                        auto s =
+                            detail::simple_integer_scanner<std::ptrdiff_t>{};
                         std::ptrdiff_t i{0};
                         auto span = make_span(id.data(), id.size()).as_const();
                         SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
-                        auto ret = s._parse_int_impl(i, false, span);
+                        auto ret = s.scan(span, i, 10);
                         SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
                         if (!ret || ret.value() != span.end()) {
                             return error(error::invalid_format_string,

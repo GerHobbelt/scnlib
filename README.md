@@ -1,9 +1,12 @@
 # scnlib
 
-[![Linux builds](https://github.com/eliaskosunen/scnlib/workflows/linux/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/linux.yml)
-[![macOS builds](https://github.com/eliaskosunen/scnlib/workflows/macos/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/macos.yml)
-[![Windows builds](https://github.com/eliaskosunen/scnlib/workflows/windows/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/windows.yml)
+[![Ubuntu 20 builds](https://github.com/eliaskosunen/scnlib/actions/workflows/ubuntu-20.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/ubuntu-20.yml)
+[![Ubuntu 18 builds](https://github.com/eliaskosunen/scnlib/actions/workflows/ubuntu-18.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/ubuntu-18.yml)
+[![macOS builds](https://github.com/eliaskosunen/scnlib/actions/workflows/macos.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/macos.yml)
+[![Windows builds](https://github.com/eliaskosunen/scnlib/actions/workflows/windows.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/windows.yml)
+[![Alpine builds](https://github.com/eliaskosunen/scnlib/actions/workflows/alpine.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/alpine.yml)
 [![Code Coverage](https://codecov.io/gh/eliaskosunen/scnlib/branch/master/graph/badge.svg?token=LyWrDluna1)](https://codecov.io/gh/eliaskosunen/scnlib)
+
 [![Latest Release](https://img.shields.io/github/v/release/eliaskosunen/scnlib?sort=semver)](https://github.com/eliaskosunen/scnlib/releases)
 [![License](https://img.shields.io/github/license/eliaskosunen/scnlib.svg)](https://github.com/eliaskosunen/scnlib/blob/master/LICENSE)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20-blue.svg)](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20-blue.svg)
@@ -175,7 +178,7 @@ Every commit is tested with
  * gcc 5.5 and newer (until v11)
  * clang 6.0 and newer (until v13)
  * Visual Studio 2019 and 2022
- * clang 12 on macOS Catalina
+ * clang 12 and gcc 11 on macOS Catalina
 
 with very extreme warning flags (see cmake/flags.cmake) and with multiple build configurations for each compiler.
 
@@ -188,12 +191,12 @@ However, support will not be provided for:
 
 VS 2017 is not tested, as GitHub Actions has deprecated the support for it.
 The last commit tested and verified to work with VS 2017 is
-[32be3f9](https://github.com/eliaskosunen/scnlib/commit/32be3f9).
+[32be3f9](https://github.com/eliaskosunen/scnlib/commit/32be3f9) (post-v0.4).
 
 The code is only tested on amd64 machines (both win32 and win64 on Windows),
 because that's the only architecture GitHub Actions has runners for.
 The last commit tested and verified to work with arm64 is
-[7b93942](https://github.com/eliaskosunen/scnlib/commit/7b93942).
+[7b93942](https://github.com/eliaskosunen/scnlib/commit/7b93942) (v0.4).
 
 ## Benchmarks
 
@@ -383,6 +386,9 @@ The bundled ranges implementation found from this library is based on NanoRange:
 
 The default floating-point parsing algorithm used by this library is implemented by fast_float:  
 <https://github.com/fastfloat/fast_float>
+
+The Unicode-related parts of this library are based on utfcpp:  
+<https://github.com/nemtrif/utfcpp>
 
 The design of this library is also inspired  by the Python `parse` library:  
 <https://github.com/r1chardj0n3s/parse>
