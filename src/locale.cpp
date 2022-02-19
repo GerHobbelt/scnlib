@@ -20,6 +20,7 @@
 #endif
 
 #include <scn/detail/locale.h>
+#include <scn/util/math.h>
 
 #include <cctype>
 #include <cmath>

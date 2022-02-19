@@ -18,7 +18,7 @@
 #ifndef SCN_DETAIL_VISITOR_H
 #define SCN_DETAIL_VISITOR_H
 
-#include "reader/reader.h"
+#include "../reader/reader.h"
 
 namespace scn {
     SCN_BEGIN_NAMESPACE
@@ -195,7 +195,7 @@ namespace scn {
                         auto s =
                             detail::simple_integer_scanner<std::ptrdiff_t>{};
                         std::ptrdiff_t i{0};
-                        auto span = make_span(id.data(), id.size()).as_const();
+                        auto span = make_span(id.data(), id.size());
                         SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
                         auto ret = s.scan(span, i, 10);
                         SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE

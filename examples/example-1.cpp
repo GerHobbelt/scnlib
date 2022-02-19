@@ -29,7 +29,10 @@
 int main(int argc, const char** argv)
 {
 	int i;
-    scn::prompt("Hi there! What's your favorite number? ", "{}", i);
+    auto ret = scn::prompt("Hi there! What's your favorite number? ", "{}", i);
+    if (!ret) {
+        return 1;
+    }
     std::cout << "Ooh, " << i << ", interesting!\n";
 	return 0;
 }

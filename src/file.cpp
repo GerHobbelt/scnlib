@@ -20,6 +20,8 @@
 #endif
 
 #include <scn/detail/file.h>
+#include <scn/detail/error.h>
+#include <scn/util/expected.h>
 
 #include <cstdio>
 
