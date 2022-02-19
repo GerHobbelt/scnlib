@@ -38,10 +38,7 @@ namespace scn {
         using scan_result_for_range =
             generic_scan_result_for_range<wrapped_error, Range>;
 
-        template <template <typename> class ParseCtx,
-                  typename Range,
-                  typename Format,
-                  typename... Args>
+        template <typename Range, typename Format, typename... Args>
         auto scan_boilerplate(Range&& r, const Format& f, Args&... a)
             -> detail::scan_result_for_range<Range>
         {
@@ -54,7 +51,7 @@ namespace scn {
 
             using context_type = basic_context<range_type>;
             using parse_context_type =
-                ParseCtx<typename context_type::locale_type>;
+                basic_parse_context<typename context_type::locale_type>;
             using char_type = typename range_type::char_type;
 
             auto range = wrap(SCN_FWD(r));
@@ -66,8 +63,33 @@ namespace scn {
                                        SCN_MOVE(ret.range));
         }
 
-        template <template <typename> class ParseCtx,
-                  typename Locale,
+        template <typename Range, typename... Args>
+        auto scan_boilerplate_default(Range&& r, Args&... a)
+            -> detail::scan_result_for_range<Range>
+        {
+            static_assert(sizeof...(Args) > 0,
+                          "Have to scan at least a single argument");
+            static_assert(SCN_CHECK_CONCEPT(ranges::range<Range>),
+                          "Input needs to be a Range");
+
+            using range_type = range_wrapper_for_t<Range>;
+
+            using context_type = basic_context<range_type>;
+            using parse_context_type =
+                basic_empty_parse_context<typename context_type::locale_type>;
+            using char_type = typename range_type::char_type;
+
+            auto range = wrap(SCN_FWD(r));
+            auto args = make_args<context_type, parse_context_type>(a...);
+            auto ret = vscan_default(SCN_MOVE(range),
+                                     static_cast<int>(sizeof...(Args)),
+                                     basic_args<char_type>(args));
+            return detail::wrap_result(wrapped_error{ret.err},
+                                       detail::range_tag<Range>{},
+                                       SCN_MOVE(ret.range));
+        }
+
+        template <typename Locale,
                   typename Range,
                   typename Format,
                   typename... Args>
@@ -88,7 +110,7 @@ namespace scn {
 
             using context_type = basic_context<range_type>;
             using parse_context_type =
-                ParseCtx<typename context_type::locale_type>;
+                basic_parse_context<typename context_type::locale_type>;
             using char_type = typename range_type::char_type;
 
             auto range = wrap(SCN_FWD(r));
@@ -121,8 +143,7 @@ namespace scn {
     auto scan(Range&& r, const Format& f, Args&... a)
         -> detail::scan_result_for_range<Range>
     {
-        return detail::scan_boilerplate<basic_parse_context>(SCN_FWD(r), f,
-                                                             a...);
+        return detail::scan_boilerplate(SCN_FWD(r), f, a...);
     }
 
     // default format
@@ -146,8 +167,7 @@ namespace scn {
     auto scan_default(Range&& r, Args&... a)
         -> detail::scan_result_for_range<Range>
     {
-        return detail::scan_boilerplate<basic_empty_parse_context>(
-            std::forward<Range>(r), static_cast<int>(sizeof...(Args)), a...);
+        return detail::scan_boilerplate_default(std::forward<Range>(r), a...);
     }
 
     // scan localized
@@ -178,8 +198,8 @@ namespace scn {
                         const Format& f,
                         Args&... a) -> detail::scan_result_for_range<Range>
     {
-        return detail::scan_boilerplate_localized<basic_parse_context>(
-            loc, std::forward<Range>(r), f, a...);
+        return detail::scan_boilerplate_localized(loc, std::forward<Range>(r),
+                                                  f, a...);
     }
 
     // value
@@ -239,8 +259,7 @@ namespace scn {
         -> detail::scan_result_for_range<basic_file<CharT>&>
     {
         auto& range = stdin_range<CharT>();
-        auto ret =
-            detail::scan_boilerplate<basic_parse_context>(range, f, a...);
+        auto ret = detail::scan_boilerplate(range, f, a...);
         range.sync();
         return ret;
     }
@@ -307,8 +326,9 @@ namespace scn {
             minus_sign = true;
             sp = make_span(str.data() + 1, str.size() - 1).as_const();
         }
-        auto ret =
-            s._read_int(val, minus_sign, sp, detail::ascii_widen<CharT>('\0'));
+        SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
+        auto ret = s._parse_int_impl(val, minus_sign, sp);
+        SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
         if (!ret) {
             return ret.error();
         }
@@ -342,7 +362,7 @@ namespace scn {
      *
      * Example use:
      *
-     * \code cpp
+     * \code{.cpp}
      * // Type has two integers, and its textual representation is
      * // "[val1, val2]"
      * struct user_type {
@@ -363,7 +383,6 @@ namespace scn {
      * @param ctx Context given to the scanning function
      * @param f Format string to parse
      * @param a Member types (etc) to parse
-     * @return
      */
     template <typename WrappedRange,
               typename LocaleRef,
@@ -379,7 +398,7 @@ namespace scn {
         using char_type = typename WrappedRange::char_type;
         auto args = make_args<basic_context<WrappedRange, LocaleRef>,
                               basic_parse_context<LocaleRef>>(a...);
-        return vscan_usertype(ctx, detail::to_format<char_type>(f),
+        return vscan_usertype(ctx, basic_string_view<char_type>(f),
                               basic_args<char_type>(args));
     }
 
@@ -426,22 +445,21 @@ namespace scn {
                            basic_string_view<CharT>& str,
                            CharT until)
         {
+            static_assert(
+                WrappedRange::is_contiguous,
+                "Cannot getline a string_view from a non-contiguous range");
             auto until_pred = [until](CharT ch) { return ch == until; };
             auto s = read_until_space_zero_copy(r, until_pred, true);
             if (!s) {
                 return s.error();
             }
-            if (s.value().size() != 0) {
-                auto size = s.value().size();
-                if (until_pred(s.value()[size - 1])) {
-                    --size;
-                }
-                str = basic_string_view<CharT>{s.value().data(), size};
-                return {};
+            SCN_ASSERT(s.value().size(), "");
+            auto size = s.value().size();
+            if (until_pred(s.value()[size - 1])) {
+                --size;
             }
-            // TODO: Compile-time error?
-            return {error::invalid_operation,
-                    "Cannot getline a string_view from a non-contiguous range"};
+            str = basic_string_view<CharT>{s.value().data(), size};
+            return {};
         }
 #if SCN_HAS_STRING_VIEW
         template <typename WrappedRange, typename CharT>
@@ -459,8 +477,8 @@ namespace scn {
 
     /**
      * Read the range in \c r into \c str until \c until is found.
-     * \c until will be skipped in parsing: it will not be pushed into \c str,
-     * and the returned range will go past it.
+     * \c until will be skipped in parsing: it will not be pushed into \c
+     * str, and the returned range will go past it.
      *
      * \c r and \c str must share character types, which must be \c CharT.
      *
@@ -506,8 +524,8 @@ namespace scn {
     }
 
     /**
-     * Equivalent to \ref getline with the last parameter set to <tt>'\\n'</tt>
-     * with the appropriate character type.
+     * Equivalent to \ref getline with the last parameter set to
+     * <tt>'\\n'</tt> with the appropriate character type.
      *
      * In other words, reads `r` into `str` until <tt>'\\n'</tt> is found.
      *
@@ -639,9 +657,9 @@ namespace scn {
     }
 
     /**
-     * Advances the beginning of \c r until \c until is found, or the beginning
-     * has been advanced \c n times. The character type of \c r must be \c
-     * CharT.
+     * Advances the beginning of \c r until \c until is found, or the
+     * beginning has been advanced \c n times. The character type of \c r
+     * must be \c CharT.
      */
     template <typename Range, typename CharT>
     auto ignore_until_n(Range&& r,
@@ -661,10 +679,10 @@ namespace scn {
     }
 
     /**
-     * Adapts a `span` into a type that can be read into using \ref scan_list.
-     * This way, potentially unnecessary dynamic memory allocations can be
-     * avoided. To use as a parameter to \ref scan_list, use
-     * \ref make_span_list_wrapper.
+     * Adapts a `span` into a type that can be read into using \ref
+     * scan_list. This way, potentially unnecessary dynamic memory
+     * allocations can be avoided. To use as a parameter to \ref scan_list,
+     * use \ref make_span_list_wrapper.
      *
      * \code{.cpp}
      * std::vector<int> buffer(8, 0);
@@ -713,8 +731,8 @@ namespace scn {
     }
 
     /**
-     * Adapts a contiguous buffer into a type containing a `span` that can be
-     * read into using \ref scan_list.
+     * Adapts a contiguous buffer into a type containing a `span` that can
+     * be read into using \ref scan_list.
      *
      * Example adapted from \ref span_list_wrapper:
      * \code{.cpp}
@@ -748,21 +766,21 @@ namespace scn {
 
     /**
      * Reads values repeatedly from `r` and writes them into `c`.
-     * The values read are of type `Container::value_type`, and they are written
-     * into `c` using `c.push_back`.
+     * The values read are of type `Container::value_type`, and they are
+     * written into `c` using `c.push_back`.
      *
      * The values must be separated by separator
-     * character `separator`, followed by whitespace. If `separator == 0`, no
-     * separator character is expected.
+     * character `separator`, followed by whitespace. If `separator == 0`,
+     * no separator character is expected.
      *
      * The range is read, until:
      *  - `c.max_size()` is reached, or
      *  - range `EOF` was reached, or
      *  - unexpected separator character was found between values.
      *
-     * In all these cases, an error will not be returned, and the beginning of
-     * the returned range will point to the first character after the scanned
-     * list.
+     * In all these cases, an error will not be returned, and the beginning
+     * of the returned range will point to the first character after the
+     * scanned list.
      *
      * To scan into `span`, use \ref span_list_wrapper.
      * \ref make_span_list_wrapper
@@ -840,8 +858,9 @@ namespace scn {
     }
 
     /**
-     * Otherwise equivalent to \ref scan_list, except with an additional case of
-     * stopping scanning: if `until` is found where a separator was expected.
+     * Otherwise equivalent to \ref scan_list, except with an additional
+     * case of stopping scanning: if `until` is found where a separator was
+     * expected.
      *
      * \see scan_list
      *

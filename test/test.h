@@ -15,13 +15,13 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-
 #include <scn/scn.h>
 
 SCN_GCC_PUSH
 SCN_GCC_IGNORE("-Wnoexcept")
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <exception>
 #include <ostream>
 #include <string>
@@ -71,6 +71,48 @@ auto do_scan_localized(const Locale& loc, Input&& i, Fmt f, T&... a)
 {
     return scn::scan_localized(loc, widen<CharT>(std::forward<Input>(i)),
                                widen<CharT>(f).c_str(), a...);
+}
+
+inline std::deque<char> get_deque(const std::string& content = "123")
+{
+    std::deque<char> src{};
+    for (auto ch : content) {
+        src.push_back(ch);
+    }
+    return src;
+}
+inline std::deque<char> get_empty_deque()
+{
+    return {};
+}
+
+template <typename T>
+bool consistency_iostream(std::string& source, T& val)
+{
+    std::istringstream ss{source};
+    ss >> val;
+    bool res = !(ss.fail() || ss.bad());
+
+    source.clear();
+    auto in_avail = ss.rdbuf()->in_avail();
+    source.resize(static_cast<size_t>(in_avail));
+    ss.rdbuf()->sgetn(&source[0], in_avail);
+
+    return res;
+}
+template <typename T>
+bool consistency_scanf(std::string& source, const std::string& fmt, T& val)
+{
+    size_t nchar{0};
+    auto f = fmt + "%n";
+
+    SCN_GCC_COMPAT_PUSH
+    SCN_GCC_COMPAT_IGNORE("-Wformat-nonliteral")
+    int nargs = std::sscanf(source.c_str(), f.c_str(), &val, &nchar);
+    SCN_GCC_COMPAT_POP
+
+    source = source.substr(nchar);
+    return nargs == 1;
 }
 
 #define DOCTEST_VALUE_PARAMETERIZED_DATA(data, data_array)                     \

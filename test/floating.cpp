@@ -143,6 +143,125 @@ TEST_CASE_TEMPLATE_INSTANTIATE(floating_test,
                                wchar_fpair<double>,
                                wchar_fpair<long double>);
 
+TEST_CASE("ranges")
+{
+    float f{1.0};
+
+    auto ret = scn::scan("0.0", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(0.0));
+    f = 1.0;
+
+    // Barely in range
+    ret = scn::scan("3.0e38", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(3.0e38f));
+    f = 1.0;
+
+    // Over max (3.4e38)
+    ret = scn::scan("3.4e39", "{}", f);
+    CHECK(!ret);
+    CHECK(ret.error() == scn::error::value_out_of_range);
+    CHECK(f == doctest::Approx(1.0));
+    f = 1.0;
+
+    // Barely in range
+    ret = scn::scan("-3.0e38", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(-3.0e38f));
+    f = 1.0;
+
+    // Under lowest (-3.4e38)
+    ret = scn::scan("-3.4e39", "{}", f);
+    CHECK(!ret);
+    CHECK(ret.error() == scn::error::value_out_of_range);
+    CHECK(f == doctest::Approx(1.0));
+    f = 1.0;
+
+    // Barely normal
+    ret = scn::scan("1.0e-37", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(1.0e-37));
+    f = 1.0;
+
+    // Subnormal (under 1.2e-38)
+    ret = scn::scan("1.2e-39", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(1.2e-39));
+    f = 1.0;
+
+    // Close to min subnormal (1.4e-45)
+    ret = scn::scan("1.5e-45", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(1.5e-45));
+    f = 1.0;
+
+    // Under min subnormal
+    ret = scn::scan("1.0e-45", "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(0.0));
+}
+
+TEST_CASE("format string")
+{
+    double f{0.0};
+
+    auto ret = scn::scan("1.0", "{:a}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(1.0));
+
+    ret = scn::scan("2.0", "{:A}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(2.0));
+
+    ret = scn::scan("3.0", "{:b}", f);
+    CHECK(!ret);
+    CHECK(ret.error() == scn::error::invalid_format_string);
+    CHECK(f == doctest::Approx(2.0));
+
+    ret = scn::scan("4.0", "{:d}", f);
+    CHECK(!ret);
+    CHECK(ret.error() == scn::error::invalid_format_string);
+    CHECK(f == doctest::Approx(2.0));
+
+    ret = scn::scan("5.0", "{:e}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(5.0));
+
+    ret = scn::scan("6.0", "{:E}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(6.0));
+
+    ret = scn::scan("7.0", "{:f}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(7.0));
+
+    ret = scn::scan("8.0", "{:F}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(8.0));
+
+    ret = scn::scan("9.0", "{:g}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(9.0));
+
+    ret = scn::scan("10.0", "{:G}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(10.0));
+}
+
+#if SCN_CLANG >= SCN_COMPILER(3, 8, 0)
+SCN_CLANG_POP
+#endif
+
+TEST_CASE("non-contiguous")
+{
+    auto src = get_deque("3.14");
+    double f{0.0};
+    auto ret = scn::scan(src, "{}", f);
+    CHECK(ret);
+    CHECK(f == doctest::Approx(3.14));
+}
+
 TEST_CASE("float error")
 {
     double d{};
@@ -162,6 +281,115 @@ TEST_CASE("parse_float")
     CHECK(d == doctest::Approx(3.14));
 }
 
-#if SCN_CLANG >= SCN_COMPILER(3, 8, 0)
-SCN_CLANG_POP
+TEST_CASE("consistency")
+{
+    SUBCASE("simple")
+    {
+        {
+            std::string source{"3.14 2.73"};
+            double d{};
+            auto ret = consistency_iostream(source, d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(source == " 2.73");
+        }
+        {
+            std::string source{"3.14 2.73"};
+            double d{};
+            auto ret = consistency_scanf(source, "%lg", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(source == " 2.73");
+        }
+        {
+            double d{};
+            auto ret = scn::scan("3.14 2.73", "{}", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(ret.range_as_string() == " 2.73");
+        }
+    }
+
+    SUBCASE("preceding whitespace")
+    {
+        {
+            std::string source{" \n3.14 2.73"};
+            double d{};
+            auto ret = consistency_iostream(source, d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(source == " 2.73");
+        }
+        {
+            std::string source{" \n3.14 2.73"};
+            double d{};
+            auto ret = consistency_scanf(source, "%lg", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(source == " 2.73");
+        }
+        {
+            double d{};
+            auto ret = scn::scan(" \n3.14 2.73", "{}", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(3.14));
+            CHECK(ret.range_as_string() == " 2.73");
+        }
+    }
+
+    SUBCASE("unexpected comma")
+    {
+        {
+            std::string source{"1,23 456"};
+            double d{};
+            auto ret = consistency_iostream(source, d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(source == ",23 456");
+        }
+        {
+            std::string source{"1,23 456"};
+            double d{};
+            auto ret = consistency_scanf(source, "%lg", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(source == ",23 456");
+        }
+        {
+            double d{};
+            auto ret = scn::scan("1,23 456", "{}", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(ret.range_as_string() == ",23 456");
+        }
+    }
+
+    SUBCASE("unexpected char")
+    {
+#if !SCN_APPLE
+        {
+            std::string source{"1foo bar"};
+            double d{};
+            auto ret = consistency_iostream(source, d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(source == "foo bar");
+        }
 #endif
+        {
+            std::string source{"1foo bar"};
+            double d{};
+            auto ret = consistency_scanf(source, "%lg", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(source == "foo bar");
+        }
+        {
+            double d{};
+            auto ret = scn::scan("1foo bar", "{}", d);
+            CHECK(ret);
+            CHECK(d == doctest::Approx(1.0));
+            CHECK(ret.range_as_string() == "foo bar");
+        }
+    }
+}

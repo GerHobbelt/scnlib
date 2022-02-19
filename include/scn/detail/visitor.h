@@ -130,9 +130,10 @@ namespace scn {
         {
             return val.scan(*m_ctx, *m_pctx);
         }
-        auto visit(detail::monostate, detail::priority_tag<0>) -> error
+        [[noreturn]] auto visit(detail::monostate, detail::priority_tag<0>)
+            -> error
         {
-            return {error::invalid_operation, "Cannot scan a monostate"};
+            SCN_UNREACHABLE;
         }
 
         template <typename Scanner>
@@ -227,9 +228,9 @@ namespace scn {
                         s.base = 10;
                         std::ptrdiff_t i{0};
                         auto span = make_span(id.data(), id.size()).as_const();
-                        auto ret =
-                            s._read_int(i, false, span,
-                                        typename decltype(span)::value_type{0});
+                        SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
+                        auto ret = s._parse_int_impl(i, false, span);
+                        SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
                         if (!ret || ret.value() != span.end()) {
                             return error(error::invalid_format_string,
                                          "Failed to parse argument id from "

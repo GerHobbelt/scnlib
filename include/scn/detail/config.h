@@ -92,10 +92,16 @@
 #define SCN_STRINGIFY(x) SCN_STRINGIFY_APPLY(x)
 
 // POSIX
-#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+#if defined(__unix__) || defined(__APPLE__)
 #define SCN_POSIX 1
 #else
 #define SCN_POSIX 0
+#endif
+
+#if defined(__APPLE__)
+#define SCN_APPLE 1
+#else
+#define SCN_APPLE 0
 #endif
 
 // Windows
@@ -156,6 +162,16 @@
 #define SCN_CLANG_IGNORE(x)
 #define SCN_CLANG_PUSH_IGNORE_UNDEFINED_TEMPLATE
 #define SCN_CLANG_POP_IGNORE_UNDEFINED_TEMPLATE
+#endif
+
+#if SCN_GCC_COMPAT && defined(SCN_PRAGMA_APPLY)
+#define SCN_GCC_COMPAT_PUSH SCN_PRAGMA_APPLY(GCC diagnostic push)
+#define SCN_GCC_COMPAT_POP SCN_PRAGMA_APPLY(GCC diagnostic pop)
+#define SCN_GCC_COMPAT_IGNORE(x) SCN_PRAGMA_APPLY(GCC diagnostic ignored x)
+#else
+#define SCN_GCC_COMPAT_PUSH
+#define SCN_GCC_COMPAT_POP
+#define SCN_GCC_COMPAT_IGNORE(x)
 #endif
 
 #if SCN_MSVC
@@ -415,9 +431,9 @@
 #endif
 
 #define SCN_MOVE(x) \
-    (static_cast<typename std::remove_reference<decltype(x)>::type&&>(x))
-#define SCN_FWD(x) static_cast<decltype(x)>(x)
-#define SCN_DECLVAL(T) static_cast<T(*)()>(nullptr)()
+    static_cast<typename std::remove_reference<decltype(x)>::type&&>(x)
+#define SCN_FWD(x) static_cast<decltype(x)&&>(x)
+#define SCN_DECLVAL(T) static_cast<T (*)()>(nullptr)()
 
 #define SCN_BEGIN_NAMESPACE inline namespace v0 {
 #define SCN_END_NAMESPACE }

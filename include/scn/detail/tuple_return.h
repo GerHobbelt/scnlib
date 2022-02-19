@@ -185,7 +185,6 @@ namespace scn {
      * To scan a non-default-constructible value, use \c scn::optional
      *
      * @param r Input range
-     * @param f
      * @return Tuple, where the first element is the scan result, and the
      * remaining elements are the scanned values.
      */
@@ -204,7 +203,7 @@ namespace scn {
         auto range = wrap(SCN_FWD(r));
         auto scanfn = [&range, &f](Args&... a) {
             auto args = make_args<context_type, parse_context_type>(a...);
-            return vscan(SCN_MOVE(range), detail::to_format<char_type>(f),
+            return vscan(SCN_MOVE(range), basic_string_view<char_type>(f),
                          {args});
         };
 
@@ -231,8 +230,8 @@ namespace scn {
         auto range = wrap(SCN_FWD(r));
         auto scanfn = [&range](Args&... a) {
             auto args = make_args<context_type, parse_context_type>(a...);
-            return vscan(SCN_MOVE(range), static_cast<int>(sizeof...(Args)),
-                         {args});
+            return vscan_default(SCN_MOVE(range),
+                                 static_cast<int>(sizeof...(Args)), {args});
         };
 
         std::tuple<Args...> values{Args{}...};
