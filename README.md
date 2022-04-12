@@ -7,9 +7,9 @@
 [![Alpine builds](https://github.com/eliaskosunen/scnlib/actions/workflows/alpine.yml/badge.svg?branch=master)](https://github.com/eliaskosunen/scnlib/actions/workflows/alpine.yml)
 [![Code Coverage](https://codecov.io/gh/eliaskosunen/scnlib/branch/master/graph/badge.svg?token=LyWrDluna1)](https://codecov.io/gh/eliaskosunen/scnlib)
 
-[![Latest Release](https://img.shields.io/github/v/release/eliaskosunen/scnlib?sort=semver)](https://github.com/eliaskosunen/scnlib/releases)
+[![Latest Release](https://img.shields.io/github/v/release/eliaskosunen/scnlib?sort=semver&display_name=tag)](https://github.com/eliaskosunen/scnlib/releases)
 [![License](https://img.shields.io/github/license/eliaskosunen/scnlib.svg)](https://github.com/eliaskosunen/scnlib/blob/master/LICENSE)
-[![C++ Standard](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20-blue.svg)](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20-blue.svg)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20%2F23-blue.svg)](https://img.shields.io/badge/C%2B%2B-11%2F14%2F17%2F20%2F23-blue.svg)
 
 ```cpp
 #include <scn/scn.h>
@@ -38,9 +38,11 @@ Think [{fmt}](https://github.com/fmtlib/fmt) but in the other direction.
 This library is the reference implementation of the ISO C++ standards proposal
 [P1729 "Text Parsing"](https://wg21.link/p1729).
 
-This library is currently of pre-release quality (version 1.0-rc1),
-but it's close to being stable.
-1.0 will be released when an rc-version will prove itself reasonably bug-free.
+The library is currently deemed production-ready, and should be reasonably bug-free;
+it's tested and fuzzed extensively.
+
+The master-branch of the repository targets the next minor release (v1.1), and is backwards-compatible.
+The dev-branch targets the next major release (v2.0), and may contain backwards-incompatible changes, and may have lacking documentation.
 
 ## Documentation
 
@@ -129,6 +131,7 @@ int main() {
  - Minimal code size increase (see benchmarks)
  - No exceptions (supports building with `-fno-exceptions -fno-rtti` with minimal loss of functionality)
    - Localization requires exceptions, because of the way `std::locale` is
+ - Unicode-aware
 
 ## Installing
 
@@ -202,44 +205,48 @@ The last commit tested and verified to work with arm64 is
 
 ![Benchmark results](benchmark/runtime/results.png?raw=true "Benchmark results")
 
-These benchmarks were run on a Ubuntu 20.04 machine running kernel version 5.4.0-52, with an Intel Core i5-6600K processor, and compiled with gcc version 9.3.0, with `-O3 -DNDEBUG -march=native`.
+These benchmarks were run on a Ubuntu 21.10 machine running kernel version 5.13.0-30, with an Intel Core i7-8565U processor, and compiled with gcc version 11.2.0, with `-O3 -DNDEBUG -march=native`.
 The source code for the benchmarks can be seen in the `benchmark` directory.
 
-You can run the benchmarks yourself by enabling `SCN_BUILD_BENCHMARKS`.
-`SCN_BUILD_BENCHMARKS` is enabled by default if `scn` is the root CMake project, and disabled otherwise.
+You can run the benchmarks yourself by enabling `SCN_BENCHMARKS`.
+`SCN_BENCHMARKS` is enabled by default if `scn` is the root CMake project, and disabled otherwise.
 
 ```sh
 $ cd build
-$ cmake -DCMAKE_BUILD_TYPE=Release -DSCN_BUILD_BENCHMARKS=ON -DSCN_NATIVE_ARCH=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON ..
+$ cmake -DCMAKE_BUILD_TYPE=Release -DSCN_BENCHMARKS=ON -DSCN_USE_NATIVE_ARCH=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON ..
 $ make -j
 # choose benchmark to run in ./benchmark/runtime/*/bench-*
 $ ./benchmark/runtime/integer/bench-int
 ```
-
-Performance comparison benchmarks with Boost.Spirit.x3 can be found [here](https://github.com/eliaskosunen/scnlib-spirit-benchmark)
 
 Times are in nanoseconds of CPU time. Lower is better.
 
 #### Integer parsing (`int`)
 
 | Test   | `std::stringstream` | `sscanf` | `scn::scan` | `scn::scan_default` |
-| :----- | ------------------: | -------: | ----------: | ------------------: |
-| Test 1 | 274                 | 96.5     | 43.0        | 40.3                |
-| Test 2 | 77.7                | 526      | 68.1        | 60.5                |
+| :----- |--------------------:|---------:|------------:|--------------------:|
+| Test 1 |                 344 |      127 |        65.1 |                55.3 |
+| Test 2 |                81.2 |      651 |        68.3 |                64.8 |
 
 #### Floating-point parsing (`double`)
 
-| Test   | `std::stringstream` | `sscanf` | `scn::scan` |
-| :----- | ------------------: | -------: | ----------: |
-| Test 1 | 416                 | 164      | 167         |
-| Test 2 | 223                 | 570      | 195         |
+| Test   | `std::stringstream` | `sscanf` | `scn::scan` | `scn::scan_default` |
+| :----- |--------------------:|---------:|------------:|--------------------:|
+| Test 1 |                 612 |      211 |        69.5 |                69.1 |
+| Test 2 |                 200 |      510 |        83.4 |                75.3 |
 
 #### Reading random whitespace-separated strings
 
-| Character type | `scn::scan` | `scn::scan` and `string_view` | `std::stringstream` |
-| :------------- | ----------: | ----------------------------: | ------------------: |
-| `char`         | 40.7        | 38.0                          | 50.2                |
-| `wchar_t`      | 42.7        | 38.3                          | 122                 |
+| Character type | `std::stringstream` | `scn::scan` | `scn::scan` and `string_view` |
+| :------------- |--------------------:|------------:|------------------------------:|
+| `char`         |                63.3 |        56.9 |                          51.0 |
+| `wchar_t`      |                 157 |        58.8 |                          62.8 |
+
+#### Conclusions
+
+`scn::scan` is faster than the standard library offerings in all cases, sometimes over 8x faster.
+
+Using `scn::scan_default` can sometimes have a slight performance benefit over `scn::scan`.
 
 #### Test 1 vs. Test 2
 
@@ -265,7 +272,7 @@ It generates 25 translation units and reads values from stdin five times to simu
 The resulting executable size is shown in the following tables and graphs.
 The "stripped size" metric shows the size of the executable after running `strip`.
 
-The code was compiled on Ubuntu 20.04 with g++ 9.3.0.
+The code was compiled on Ubuntu 21.10 with g++ 11.2.0.
 `scnlib` is linked dynamically to level out the playing field compared to already dynamically linked `libc` and `libstdc++`.
 See the directory `benchmark/bloat` for more information, e.g. templates for each TU.
 
@@ -274,11 +281,11 @@ To run these tests yourself:
 ```sh
 $ cd build
 # For Debug
-$ cmake -DCMAKE_BUILD_TYPE=Debug -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
+$ cmake -DCMAKE_BUILD_TYPE=Debug -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF -DSCN_EXAMPLES=OFF -DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
 # For Release
-$ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
+$ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF -DSCN_EXAMPLES=OFF -DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
 # For Minimized Release
-$ cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
+$ cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DSCN_BUILD_BLOAT=ON -DSCN_BUILD_BUILDTIME=OFF -DSCN_TESTS=OFF -DSCN_EXAMPLES=OFF -DBUILD_SHARED_LIBS=ON -DSCN_INSTALL=OFF ..
 
 $ make -j
 $ ./benchmark/bloat/run-bloat-tests.py ./benchmark/bloat
@@ -291,13 +298,13 @@ Lower is better.
 
 | Method                          | Executable size | Stripped size |
 | :------------------------------ | --------------: | ------------: |
-| empty                           |            16.0 |          14.0 |
-| `std::scanf`                    |            17.8 |          14.2 |
-| `std::istream`                  |            19.4 |          14.2 |
-| `scn::input`                    |            19.1 |          14.2 |
-| `scn::input` (header-only)      |            41.4 |          30.2 |
-| `scn::scan_value`               |            35.9 |          26.2 |
-| `scn::scan_value` (header-only) |            32.0 |          22.2 |
+| empty                           |            15.4 |          14.0 |
+| `std::scanf`                    |            17.0 |          14.2 |
+| `std::istream`                  |            18.6 |          14.2 |
+| `scn::input`                    |            18.4 |          14.2 |
+| `scn::input` (header-only)      |             120 |          94.3 |
+| `scn::scan_value`               |            18.1 |          14.2 |
+| `scn::scan_value` (header-only) |             100 |          78.3 |
 
 ![Benchmark results](benchmark/bloat/results_minsizerel.png?raw=true "Benchmark results")
 
@@ -305,13 +312,13 @@ Lower is better.
 
 | Method                          | Executable size | Stripped size |
 | :------------------------------ | --------------: | ------------: |
-| empty                           |            16.0 |          14.0 |
-| `std::scanf`                    |            17.7 |          14.2 |
-| `std::istream`                  |            19.4 |          14.2 |
-| `scn::input`                    |            19.1 |          14.2 |
-| `scn::input` (header-only)      |            53.8 |          42.2 |
-| `scn::scan_value`               |            39.3 |          30.2 |
-| `scn::scan_value` (header-only) |            43.8 |          34.2 |
+| empty                           |            15.4 |          14.0 |
+| `std::scanf`                    |            17.0 |          14.2 |
+| `std::istream`                  |            18.6 |          14.2 |
+| `scn::input`                    |            18.2 |          14.2 |
+| `scn::input` (header-only)      |             161 |           138 |
+| `scn::scan_value`               |            18.6 |          14.2 |
+| `scn::scan_value` (header-only) |             124 |           106 |
 
 ![Benchmark results](benchmark/bloat/results_release.png?raw=true "Benchmark results")
 
@@ -319,22 +326,31 @@ Lower is better.
 
 | Method                          | Executable size | Stripped size |
 | :------------------------------ | --------------: | ------------: |
-| empty                           |            35.9 |          14.0 |
-| `std::scanf`                    |             614 |          18.2 |
-| `std::istream`                  |             688 |          26.2 |
-| `scn::input`                    |            1425 |          42.3 |
-| `scn::input` (header-only)      |            4703 |           202 |
-| `scn::scan_value`               |            3622 |           134 |
-| `scn::scan_value` (header-only) |            4778 |           186 |
+| empty                           |            27.5 |          14.0 |
+| `std::scanf`                    |             605 |          22.2 |
+| `std::istream`                  |             651 |          26.2 |
+| `scn::input`                    |            1633 |          94.3 |
+| `scn::input` (header-only)      |           10533 |          1010 |
+| `scn::scan_value`               |            1765 |          90.3 |
+| `scn::scan_value` (header-only) |            9289 |           698 |
 
 ![Benchmark results](benchmark/bloat/results_debug.png?raw=true "Benchmark results")
+
+#### Conclusions
+
+When using optimizing build options, scnlib provides equal binary size to `<iostream>`, and a ~10% increase compared to `scanf`.
+If using `strip`, these differences go away.
+
+On Debug mode, scnlib is ~3x bigger compared to `<iostream>` and `scanf`.
+
+Header-only mode makes executable size ~6-7x bigger.
 
 ### Build time
 
 This test measures the time it takes to compile a binary when using different libraries.
 Note, that the time it takes to compile the library is not taken into account (unfair measurement against precompiled stdlibs).
 
-These tests were run on an Ubuntu 20.04 machine with an i5-6600K and 16 GB of RAM, using GCC 9.3.0.
+These tests were run on an Ubuntu 21.10 machine with an i7-8565U and 40 GB of RAM, using GCC 11.2.0.
 The compiler flags for a debug build were `-g`, and `-O3 -DNDEBUG` for a release build.
 
 To run these tests yourself, enable CMake flag `SCN_BUILD_BUILDTIME`.
@@ -354,12 +370,12 @@ Time is in seconds of CPU time (user time + sys/kernel time).
 Lower is better.
 
 | Method                      | Debug | Release |
-| :-------------------------- | ----: | ------: |
-| empty                       | 0.04  | 0.04    |
-| `scanf`                     | 0.25  | 0.23    |
-| `std::istream` / `std::cin` | 0.31  | 0.29    |
-| `scn::input`                | 0.50  | 0.48    |
-| `scn::input` (header only)  | 1.34  | 2.48    |
+| :-------------------------- |------:|--------:|
+| empty                       |  0.07 |    0.03 |
+| `scanf`                     |  0.20 |    0.19 |
+| `std::istream` / `std::cin` |  0.26 |    0.24 |
+| `scn::input`                |  0.55 |    0.54 |
+| `scn::input` (header only)  |  1.88 |    3.69 |
 
 #### Memory consumption
 
@@ -367,12 +383,18 @@ Memory is in mebibytes (MiB).
 Lower is better.
 
 | Method                      | Debug | Release |
-| :-------------------------- | ----: | ------: |
-| empty                       | 22.2  | 23.8    |
-| `scanf`                     | 46.9  | 46.7    |
-| `std::istream` / `std::cin` | 55.1  | 54.8    |
-| `scn::input`                | 78.0  | 75.6    |
-| `scn::input` (header only)  | 140   | 166     |
+| :-------------------------- |------:|--------:|
+| empty                       |  17.4 |    20.3 |
+| `scanf`                     |  49.1 |    49.7 |
+| `std::istream` / `std::cin` |  60.8 |    60.8 |
+| `scn::input`                |  96.0 |    92.7 |
+| `scn::input` (header only)  |   217 |     247 |
+
+#### Conclusions
+
+scnlib takes about 2x longer to compile compared to `<iostream>`, and uses about 70% more memory.
+
+Header-only mode can make compilation up to 7x slower, and use up to 3x as much memory.
 
 ## Acknowledgements
 

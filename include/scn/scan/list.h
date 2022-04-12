@@ -175,7 +175,7 @@ namespace scn {
                                              code_point)
         {
             unsigned char buf[4] = {0};
-            auto ret = read_code_point(r, make_span(buf, 4), true);
+            auto ret = read_code_point(r, make_span(buf, 4));
             if (!ret) {
                 return ret.error();
             }
@@ -274,6 +274,9 @@ namespace scn {
                     err = read_next();
                     if (!err) {
                         return err;
+                    }
+                    if (!scanning) {
+                        break;
                     }
 
                     if (ctx.locale().get_static().is_space(next)) {
