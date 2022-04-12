@@ -22,6 +22,7 @@
 #include "../util/algorithm.h"
 #include "../util/memory.h"
 #include "error.h"
+#include "vectored.h"
 
 namespace scn {
     SCN_BEGIN_NAMESPACE
@@ -31,8 +32,7 @@ namespace scn {
             struct fn {
             private:
                 template <typename Iterator>
-                static auto
-                impl(Iterator& it, priority_tag<1>) noexcept(
+                static auto impl(Iterator& it, priority_tag<1>) noexcept(
                     noexcept(it.reset_begin_iterator()))
                     -> decltype(it.reset_begin_iterator())
                 {
@@ -82,9 +82,6 @@ namespace scn {
         template <typename Range, typename = void>
         struct is_direct_impl
             : std::is_integral<ranges::range_value_t<const Range>> {
-        };
-        template <typename Range, typename = void>
-        struct provides_buffer_access_impl : std::false_type {
         };
 
         template <typename Range>
@@ -342,6 +339,8 @@ namespace scn {
             {
                 return std::addressof(*m_begin);
             }
+            SCN_GCC_PUSH
+            SCN_GCC_IGNORE("-Wnoexcept")
             /**
              * Returns `end() - begin()`.
              * `*this` must be sized.
@@ -357,6 +356,23 @@ namespace scn {
                     SCN_DECLVAL(ranges::sentinel_t<const R>)))
             {
                 return ranges::distance(m_begin, end());
+            }
+            SCN_GCC_POP
+            struct dummy2 {
+            };
+
+            template <typename R = range_nocvref_type,
+                      typename std::enable_if<provides_buffer_access_impl<
+                          R>::value>::type* = nullptr>
+            span<const char_type> get_buffer_and_advance(
+                size_t max_size = std::numeric_limits<size_t>::max())
+            {
+                auto buf = get_buffer(m_range.get(), begin(), max_size);
+                if (buf.size() == 0) {
+                    return buf;
+                }
+                advance(buf.ssize());
+                return buf;
             }
 
             /**
@@ -388,7 +404,8 @@ namespace scn {
                 m_read = 0;
             }
 
-            void reset_begin_iterator() {
+            void reset_begin_iterator()
+            {
                 detail::reset_begin_iterator(m_begin);
             }
 
@@ -419,10 +436,8 @@ namespace scn {
                 SCN_CHECK_CONCEPT(ranges::contiguous_range<range_nocvref_type>);
             /**
              * `true` if the range provides a way to access a contiguous buffer
-             * on it, which may not provide the entire source data, e.g. a
-             * `span` of `span`s (vectored I/O).
-             *
-             * Unimplemented, TODO
+             * on it (`detail::get_buffer()`), which may not provide the entire
+             * source data, e.g. a `span` of `span`s (vectored I/O).
              */
             static constexpr bool provides_buffer_access =
                 provides_buffer_access_impl<range_nocvref_type>::value;
