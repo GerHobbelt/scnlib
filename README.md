@@ -15,7 +15,7 @@
 #include <scn/scn.h>
 #include <cstdio>
 
-int main() {
+int main(void) {
     int i;
     // Read an integer from stdin
     // with an accompanying message
@@ -60,7 +60,7 @@ The `doc` target requires Doxygen, and `doc-sphinx` requires Python 3.8, Sphinx 
 #include <iostream>
 #include <string_view>
 
-int main() {
+int main(void) {
     std::string word;
     auto result = scn::scan("Hello world", "{}", word);
 
@@ -74,7 +74,7 @@ int main() {
 ```cpp
 #include <scn/scn.h>
 
-int main() {
+int main(void) {
     int i, j;
     auto result = scn::scan("123 456 foo", "{} {}", i, j);
     // result == true
@@ -94,7 +94,7 @@ int main() {
 #include <scn/scn.h>
 #include <scn/tuple_return.h>
 
-int main() {
+int main(void) {
     auto [r, i] = scn::scan_tuple<int>("42", "{}");
     // r is a result object, contextually convertible to `bool`
     // i == 42
@@ -108,7 +108,7 @@ int main() {
 #include <string_view>
 #include <iostream>
 
-int main() {
+int main(void) {
     int i;
     // "foo" is not a valid integer
     auto result = scn::scan("foo", "{}", i);

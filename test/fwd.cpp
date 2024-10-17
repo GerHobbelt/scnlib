@@ -26,4 +26,4 @@ namespace scn {
     };
 }  // namespace scn
 
-int main() {}
+int main(void) {}

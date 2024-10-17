@@ -3,7 +3,7 @@ function(generate_bloat_test_files template outdir sources)
     set(bloat_test_header "${CMAKE_CURRENT_LIST_DIR}/${outdir}/bloat_test_all.h")
 
     file(WRITE ${bloat_test_main} "#include \"bloat_test_all.h\"\n")
-    file(APPEND ${bloat_test_main} "int main() {\n")
+    file(APPEND ${bloat_test_main} "int main(void) {\n")
 
     set(source_files_list ${bloat_test_main} ${bloat_test_header})
 

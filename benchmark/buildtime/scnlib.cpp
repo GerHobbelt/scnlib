@@ -1,6 +1,6 @@
 #include <scn/scn.h>
 
-int main()
+int main(void)
 {
     int i;
     auto ret = scn::input("{}", i);

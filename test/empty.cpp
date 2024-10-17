@@ -25,7 +25,7 @@ void empty_test()
     SCN_ENSURE(ret);
 }
 
-int main()
+int main(void)
 {
     empty_test();
 }

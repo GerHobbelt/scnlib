@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <string>
 
-int main()
+int main(void)
 {
     int i;
     scanf("%d", &i);
