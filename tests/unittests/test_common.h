@@ -15,27 +15,24 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <scn/impl/reader/common.h>
+#include "scn/detail/format_string_parser.h"
 
-namespace scn {
-    SCN_BEGIN_NAMESPACE
+SCN_GCC_PUSH
+SCN_GCC_IGNORE("-Wnoexcept")
 
-    namespace impl {
-        SCN_CLANG_PUSH
-        SCN_CLANG_IGNORE("-Wexit-time-destructors")
+#include <gmock/gmock.h>
 
-        template <typename CharT>
-        std::basic_string<CharT>& source_reader_buffer()
-        {
-            static thread_local std::basic_string<CharT> buffer;
-            return buffer;
-        }
+SCN_GCC_POP
 
-        SCN_CLANG_POP
+template <typename CharT>
+class value_reader_interface {
+public:
+    virtual ~value_reader_interface() = default;
 
-        template std::string& source_reader_buffer();
-        template std::wstring& source_reader_buffer();
-    }  // namespace impl
+    virtual void make_value_reader() = 0;
+    virtual void make_value_reader(uint8_t flags1, uint8_t flags2 = 0) = 0;
+    virtual void make_value_reader_from_specs(
+        const scn::detail::basic_format_specs<CharT>&) = 0;
 
-    SCN_END_NAMESPACE
-}  // namespace scn
+    [[nodiscard]] virtual bool is_localized() const = 0;
+};

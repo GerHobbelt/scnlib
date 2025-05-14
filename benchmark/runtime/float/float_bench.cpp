@@ -15,17 +15,6 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <scn/detail/format_string_parser.h>
+#include "benchmark_common.h"
 
-template <typename CharT>
-class value_reader_interface {
-public:
-    virtual ~value_reader_interface() = default;
-
-    virtual void make_value_reader() = 0;
-    virtual void make_value_reader(uint8_t flags1, uint8_t flags2 = 0) = 0;
-    virtual void make_value_reader_from_specs(
-        const scn::detail::basic_format_specs<CharT>&) = 0;
-
-    [[nodiscard]] virtual bool is_localized() const = 0;
-};
+BENCHMARK_MAIN();
