@@ -17,9 +17,6 @@
 
 #include <scn/scan.h>
 
-#include <streambuf>
-#include <fstream>
-
 #include "monolithic_examples.h"
 
 
@@ -30,12 +27,14 @@
 
 int main(int argc, const char** argv)
 {
-    if (const auto [result, num] =
-            scn::prompt<int>("What's your favorite number? ", "{}"); result) {
-        std::printf("%d, interesting\n", num);
+    if (const auto result =
+            scn::prompt<int>("What's your favorite number? ", "{}")) {
+        // `result` is true, we have a successful read.
+        // Read the single parsed value with result->value()
+        std::printf("%d, interesting\n", result->value());
     }
     else {
-        std::puts("Well, nevermind then.");
+        std::puts("Well, never mind then.");
     }
 	return 0;
 }

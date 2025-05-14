@@ -68,10 +68,10 @@ std::vector<std::string> make_float_list(std::size_t n)
 }
 
 template <typename Float>
-scn::span<std::string> get_float_list()
+const auto& get_float_list()
 {
     static auto list = make_float_list<Float>(2 << 12);
-    return {list.begin(), list.end()};
+    return list;
 }
 
 template <typename Float>
@@ -124,4 +124,63 @@ inline int sscanf_float_n(const char*& ptr, long double& f)
     auto ret = std::sscanf(ptr, "%Lf%n", &f, &n);
     ptr += n + 1;
     return ret;
+}
+
+inline bool strtod_float(const char* ptr, float& f)
+{
+    char* endptr{};
+    f = std::strtof(ptr, &endptr);
+    return endptr != ptr;
+}
+inline bool strtod_float(const char* ptr, double& f)
+{
+    char* endptr{};
+    f = std::strtod(ptr, &endptr);
+    return endptr != ptr;
+}
+inline bool strtod_float(const char* ptr, long double& f)
+{
+    char* endptr{};
+    f = std::strtold(ptr, &endptr);
+    return endptr != ptr;
+}
+
+inline int strtod_float_n(const char*& ptr, float& f)
+{
+    char* endptr{};
+    f = std::strtof(ptr, &endptr);
+    if (*ptr == '\0') {
+        return EOF;
+    }
+    if (endptr == ptr) {
+        return 1;
+    }
+    ptr = endptr;
+    return 0;
+}
+inline int strtod_float_n(const char*& ptr, double& f)
+{
+    char* endptr{};
+    f = std::strtod(ptr, &endptr);
+    if (*ptr == '\0') {
+        return EOF;
+    }
+    if (endptr == ptr) {
+        return 1;
+    }
+    ptr = endptr;
+    return 0;
+}
+inline int strtod_float_n(const char*& ptr, long double& f)
+{
+    char* endptr{};
+    f = std::strtold(ptr, &endptr);
+    if (*ptr == '\0') {
+        return EOF;
+    }
+    if (endptr == ptr) {
+        return 1;
+    }
+    ptr = endptr;
+    return 0;
 }

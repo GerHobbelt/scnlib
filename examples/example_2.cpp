@@ -27,14 +27,16 @@
 
 int main(int argc, const char** argv)
 {
-    if (const auto [result, name] =
-            scn::prompt<std::string>(
-                "Input your full name:\n", "{:[^\n]}");
-        result) {
+    if (const auto result =
+            scn::prompt<std::string>("Input your full name:\n", "{:[^\n]}")) {
+        // Access the tuple of all parsed values through result->values()
+        const auto& [name] = result->values();
         std::printf("Hello, %s", name.c_str());
     }
     else {
-        std::puts("Couldn't read name");
+        // Access error object through result.error()
+        std::printf("Couldn't read name: %d '%s'", result.error().code(),
+                    result.error().msg());
     }
 	return 0;
 }

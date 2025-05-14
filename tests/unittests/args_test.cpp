@@ -15,21 +15,18 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <gtest/gtest.h>
+#include "wrapped_gtest.h"
 
-#include <scn/detail/args.h>
-#include <scn/detail/context.h>
+#include <scn/scan.h>
 
 using ::testing::Test;
 
-using scan_context = scn::basic_scan_context<std::string_view, char>;
-
 TEST(ArgsTest, ArgTypeMapping)
 {
-    static_assert(scn::detail::mapped_type_constant<int, scan_context>::value ==
+    static_assert(scn::detail::mapped_type_constant<int, char>::value ==
                   scn::detail::arg_type::int_type);
     static_assert(scn::detail::mapped_type_constant<scn::detail::dummy_type,
-                                                    scan_context>::value ==
+                                                    char>::value ==
                   scn::detail::arg_type::custom_type);
 
     // narrow context, narrow char -> valid
@@ -79,14 +76,17 @@ TEST(ArgsTest, ArgTypeMapping)
 
 TEST(ArgsTest, ArgStore)
 {
-    auto store = scn::make_scan_args<scan_context, int, double>();
-    auto args = scn::basic_scan_args<scan_context>{store};
+    std::tuple<int, double> args_tuple{};
+    auto store = scn::make_scan_args(args_tuple);
+    auto args = scn::basic_scan_args{store};
 
-    EXPECT_EQ(args.get(0).type(), scn::detail::arg_type::int_type);
-    EXPECT_EQ(args.get(1).type(), scn::detail::arg_type::double_type);
+    EXPECT_EQ(scn::detail::get_arg_type(args.get(0)),
+              scn::detail::arg_type::int_type);
+    EXPECT_EQ(scn::detail::get_arg_type(args.get(1)),
+              scn::detail::arg_type::double_type);
 
-    *static_cast<int*>(args.get(0).value().ref_value) = 42;
-    EXPECT_EQ(std::get<0>(store.args()), 42);
+    *static_cast<int*>(scn::detail::get_arg_value(args.get(0)).ref_value) = 42;
 
-    EXPECT_DOUBLE_EQ(std::get<1>(store.args()), 0.0);
+    EXPECT_EQ(std::get<0>(args_tuple), 42);
+    EXPECT_DOUBLE_EQ(std::get<1>(args_tuple), 0.0);
 }

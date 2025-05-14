@@ -28,8 +28,8 @@ static void bench_basic_scn(benchmark::State& state)
 {
     std::string_view input{"123"};
     for (auto _ : state) {
-        if (auto [result, i] = scn::scan<int>(input, "{}"); result) {
-            benchmark::DoNotOptimize(i);
+        if (auto result = scn::scan<int>(input, "{}")) {
+            benchmark::DoNotOptimize(SCN_MOVE(result->value()));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -43,8 +43,8 @@ static void bench_basic_scn_withoptions(benchmark::State& state)
 {
     std::string_view input{"123"};
     for (auto _ : state) {
-        if (auto [result, i] = scn::scan<int>(input, "{:i}"); result) {
-            benchmark::DoNotOptimize(i);
+        if (auto result = scn::scan<int>(input, "{:i}")) {
+            benchmark::DoNotOptimize(SCN_MOVE(result->value()));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -54,13 +54,14 @@ static void bench_basic_scn_withoptions(benchmark::State& state)
 }
 BENCHMARK(bench_basic_scn_withoptions);
 
+#if !SCN_DISABLE_LOCALE
 static void bench_basic_scn_withlocale(benchmark::State& state)
 {
     std::string_view input{"123"};
     auto loc = std::locale{};
     for (auto _ : state) {
-        if (auto [result, i] = scn::scan<int>(loc, input, "{}"); result) {
-            benchmark::DoNotOptimize(i);
+        if (auto result = scn::scan<int>(loc, input, "{}")) {
+            benchmark::DoNotOptimize(SCN_MOVE(result->value()));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -75,8 +76,8 @@ static void bench_basic_scn_localized(benchmark::State& state)
     std::string_view input{"123"};
     auto loc = std::locale{};
     for (auto _ : state) {
-        if (auto [result, i] = scn::scan<int>(loc, input, "{:L}"); result) {
-            benchmark::DoNotOptimize(i);
+        if (auto result = scn::scan<int>(loc, input, "{:L}")) {
+            benchmark::DoNotOptimize(SCN_MOVE(result->value()));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -85,13 +86,14 @@ static void bench_basic_scn_localized(benchmark::State& state)
     }
 }
 BENCHMARK(bench_basic_scn_localized);
+#endif
 
 static void bench_basic_scn_value(benchmark::State& state)
 {
     std::string_view input{"123"};
     for (auto _ : state) {
-        if (auto [result, i] = scn::scan_value<int>(input); result) {
-            benchmark::DoNotOptimize(i);
+        if (auto result = scn::scan_value<int>(input)) {
+            benchmark::DoNotOptimize(SCN_MOVE(result->value()));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -111,7 +113,7 @@ static void bench_basic_from_chars(benchmark::State& state)
         if (auto res =
                 std::from_chars(input.data(), input.data() + input.size(), i);
             res.ec == std::errc{}) {
-            benchmark::DoNotOptimize(i);
+            benchmark::DoNotOptimize(SCN_MOVE(i));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -129,7 +131,7 @@ static void bench_basic_scanf(benchmark::State& state)
     for (auto _ : state) {
         int i{};
         if (auto res = std::sscanf(input.c_str(), "%i", &i); res != 0) {
-            benchmark::DoNotOptimize(i);
+            benchmark::DoNotOptimize(SCN_MOVE(i));
         }
         else {
             state.SkipWithError("Failed scan");
@@ -154,7 +156,7 @@ static void bench_basic_strtol(benchmark::State& state)
             errno = prev_errno;
             break;
         }
-        benchmark::DoNotOptimize(i);
+        benchmark::DoNotOptimize(SCN_MOVE(i));
 
         errno = prev_errno;
     }
@@ -168,7 +170,7 @@ static void bench_basic_sstream(benchmark::State& state)
         std::istringstream ss{input};
         int i{};
         if (ss >> i) {
-            benchmark::DoNotOptimize(i);
+            benchmark::DoNotOptimize(SCN_MOVE(i));
         }
         else {
             state.SkipWithError("Failed scan");

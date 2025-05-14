@@ -15,168 +15,268 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <gtest/gtest.h>
+#include "wrapped_gtest.h"
 
-#include <scn/detail/scan.h>
+#include <scn/scan.h>
+#include <scn/xchar.h>
 
 TEST(FormatStringTest, ConstructFromLiteral)
 {
-    scn::format_string<int> str{"{}"};
+    scn::scan_format_string<std::string_view, int> str{"{}"};
     EXPECT_EQ(str, std::string_view{"{}"});
 }
 
 TEST(FormatStringTest, CompileTimeCheckLiteral)
 {
-    scn::format_string<int> str{SCN_STRING("{}")};
+    scn::scan_format_string<std::string_view, int> str{SCN_STRING("{}")};
     EXPECT_EQ(str, std::string_view{"{}"});
 }
 
 TEST(FormatStringTest, ValidStringCompileTimeCheck)
 {
-    auto [result, val] = scn::scan<int>("42", SCN_STRING("{}"));
-    EXPECT_TRUE(result);
-    EXPECT_EQ(val, 42);
+    auto result = scn::scan<int>("42", SCN_STRING("{}"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(std::get<0>(result->values()), 42);
 }
 // Fails to compile, as it should
 #if 0
 TEST(FormatStringTest, InvalidStringCompileTimeCheck)
 {
-    auto [result, _] = scn::scan<int>("42", SCN_STRING("{"));
+    auto result = scn::scan<int>("42", SCN_STRING("{"));
     EXPECT_FALSE(result);
 }
 #endif
 
 TEST(FormatStringTest, ValidStringRuntimeCheck)
 {
-    auto [result, val] = scn::scan<int>("42", "{}");
-    EXPECT_TRUE(result);
-    EXPECT_EQ(val, 42);
+    auto result = scn::scan<int>("42", "{}");
+    ASSERT_TRUE(result);
+    EXPECT_EQ(std::get<0>(result->values()), 42);
 }
 // Fails to compile, as it should
 #if !SCN_HAS_CONSTEVAL
 TEST(FormatStringTest, InvalidStringRuntimeCheck)
 {
-    auto [result, _] = scn::scan<int>("42", "{");
+    auto result = scn::scan<int>("42", "{");
     EXPECT_FALSE(result);
 }
 #endif
 
 TEST(FormatStringTest, ValidStringForceRuntime)
 {
-    auto [result, val] = scn::scan<int>("42", scn::runtime("{}"));
-    EXPECT_TRUE(result);
-    EXPECT_EQ(val, 42);
+    auto result = scn::scan<int>("42", scn::runtime_format("{}"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(std::get<0>(result->values()), 42);
 }
 TEST(FormatStringTest, InvalidStringForceRuntime)
 {
-    auto [result, _] = scn::scan<int>("42", scn::runtime("{"));
+    auto result = scn::scan<int>("42", scn::runtime_format("{"));
     EXPECT_FALSE(result);
 }
 
 #if !SCN_HAS_CONSTEVAL
 TEST(FormatStringTest, TooManyArgsInFormatStringLiteral)
 {
-    auto [result, _] = scn::scan<int>("42", "{} {}");
+    auto result = scn::scan<int>("42", "{} {}");
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, TooManyArgsInArgListLiteral)
 {
-    auto [result, i, j] = scn::scan<int, int>("42", "{}");
+    auto result = scn::scan<int, int>("42", "{}");
     EXPECT_FALSE(result);
-    SCN_UNUSED(i);
-    SCN_UNUSED(j);
 }
 #endif
 
+TEST(FormatStringTest, EscapedBraces)
+{
+    auto result = scn::scan<int>("{}123", scn::runtime_format("{{}}{}"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), 123);
+}
+
 TEST(FormatStringTest, TooManyArgsInFormatStringRuntime)
 {
-    auto [result, _] = scn::scan<int>("42", scn::runtime("{} {}"));
+    auto result = scn::scan<int>("42", scn::runtime_format("{} {}"));
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, TooManyArgsInArgListCompileTime)
 {
-    auto [result, i, j] = scn::scan<int, int>("42", scn::runtime("{}"));
+    auto result = scn::scan<int, int>("42", scn::runtime_format("{}"));
     EXPECT_FALSE(result);
-    SCN_UNUSED(i);
-    SCN_UNUSED(j);
 }
 
 TEST(FormatStringTest, HasId)
 {
-    auto [result, _] = scn::scan<int>("42", scn::runtime("{0}"));
-    EXPECT_FALSE(result);
+    auto result = scn::scan<int>("42", scn::runtime_format("{0}"));
+    EXPECT_TRUE(result);
 }
 
 TEST(FormatStringTest, UnexpectedEndOfSpecs_WithOnlyOpenBrace)
 {
-    auto [result, _] = scn::scan<std::string>("42", scn::runtime("{"));
+    auto result = scn::scan<std::string>("42", scn::runtime_format("{"));
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, UnexpectedEndOfSpecs_WithOpenBraceAndLineBreak)
 {
-    auto [result, _] = scn::scan<std::string>("42", scn::runtime("{\n"));
+    auto result = scn::scan<std::string>("42", scn::runtime_format("{\n"));
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, UnexpectedEndOfSpecs_WithOpenBraceAndColon)
 {
-    auto [result, _] = scn::scan<std::string>("42", scn::runtime("{:"));
+    auto result = scn::scan<std::string>("42", scn::runtime_format("{:"));
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, UnexpectedEndOfSpecs_WithOpenBraceAndColonAndLineBreak)
 {
-    auto [result, _] = scn::scan<std::string>("42", scn::runtime("{:\n"));
+    auto result = scn::scan<std::string>("42", scn::runtime_format("{:\n"));
     EXPECT_FALSE(result);
 }
 
 TEST(FormatStringTest, EmptyCharacterSet)
 {
-    auto [result, _] = scn::scan<std::string>("42", scn::runtime("{:[]}"));
+    auto result = scn::scan<std::string>("42", scn::runtime_format("{:[]}"));
     EXPECT_FALSE(result);
-}
-TEST(FormatStringTest, AlphaCharacterSet)
-{
-    auto [result, word] = scn::scan<std::string>("abc", "{:[:alpha:]}");
-    EXPECT_TRUE(result);
-    EXPECT_EQ(word, "abc");
-}
-TEST(FormatStringTest, AlphaCharacterSetWithStringView)
-{
-    static_assert(scn::ranges::contiguous_range<std::string_view>);
-    static_assert(scn::ranges::contiguous_range<scn::ranges::subrange<const char*>>);
-    //static_assert(scn::ranges::contiguous_range<scn::ranges::subrange<std::string_view::iterator>>);
-    static_assert(std::is_same_v<decltype(scn::ranges::data(
-                                     SCN_DECLVAL(std::string_view&))),
-                                 const char*>);
-    /*
-    static_assert(std::is_same_v<decltype(
-                                     SCN_DECLVAL(scn::ranges::subrange<std::string_view::iterator>&).data()),
-                                 const char*>);
-                                 */
-    auto [result, word] = scn::scan<std::string_view>("abc", "{:[:alpha:]}");
-    EXPECT_TRUE(result);
-    EXPECT_EQ(word, "abc");
 }
 TEST(FormatStringTest, InvertedCharacterSet)
 {
-    auto [result, word] =
-        scn::scan<std::string>("abc\n", scn::runtime("{:[^\n]}"));
-    EXPECT_TRUE(result);
-    EXPECT_EQ(word, "abc");
+    auto result =
+        scn::scan<std::string>("abc 123\n", scn::runtime_format("{:[^\n]}"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(std::get<0>(result->values()), "abc 123");
 }
 
 TEST(FormatStringTest, NonTerminatedCharacterSet)
 {
-    auto [result, _] = scn::scan<std::string>("abc", scn::runtime("{:["));
+    auto result = scn::scan<std::string>("abc", scn::runtime_format("{:["));
     EXPECT_FALSE(result);
 }
 TEST(FormatStringTest, NonTerminatedCharacterSetWithStringView)
 {
-    auto [result, _] = scn::scan<std::string_view>("abc", scn::runtime("{:["));
+    auto result =
+        scn::scan<std::string_view>("abc", scn::runtime_format("{:["));
     EXPECT_FALSE(result);
+}
+
+TEST(FormatStringTest, RangeSet)
+{
+    auto result = scn::scan<std::string>("abcd", "{:[a-c]}");
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), "abc");
+}
+TEST(FormatStringTest, RangeSetRuntime)
+{
+    auto result =
+        scn::scan<std::string>("abcd", scn::runtime_format("{:[a-c]}"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), "abc");
+}
+TEST(FormatStringTest, InvalidRangeSet)
+{
+    auto result =
+        scn::scan<std::string>("abcd", scn::runtime_format("{:[c-a]}"));
+    ASSERT_FALSE(result);
 }
 
 TEST(FormatStringTest, ExtraArgInFormatString)
 {
-    auto [result, _] = scn::scan<std::string>("abc def", scn::runtime("{} {}"));
+    auto result =
+        scn::scan<std::string>("abc def", scn::runtime_format("{} {}"));
     EXPECT_FALSE(result);
+}
+
+TEST(FormatStringTest, SpaceSkipsAnyWhitespace)
+{
+    auto result = scn::scan<char, char>("a \n\tb", "{} {}");
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(result->range().empty());
+    auto [a, b] = result->values();
+    EXPECT_EQ(a, 'a');
+    EXPECT_EQ(b, 'b');
+}
+TEST(FormatStringTest, AnyWhitespaceSkipsAnyWhitespace)
+{
+    auto result = scn::scan<char, char>("a \n\tb", "{}\n{}");
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(result->range().empty());
+    auto [a, b] = result->values();
+    EXPECT_EQ(a, 'a');
+    EXPECT_EQ(b, 'b');
+}
+TEST(FormatStringTest, AnyComboOfWhitespaceSkipsAnyWhitespace)
+{
+    auto result = scn::scan<char, char>("a \n\tb", "{}\n {}");
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(result->range().empty());
+    auto [a, b] = result->values();
+    EXPECT_EQ(a, 'a');
+    EXPECT_EQ(b, 'b');
+}
+
+TEST(FormatStringTest, LiteralsAndWhitespace)
+{
+    auto result =
+        scn::scan<std::string>("a b c", scn::runtime_format("a {} c"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), "b");
+}
+
+TEST(FormatStringTest, LongFormatString1)
+{
+    auto result = scn::scan<std::string>(
+        "abcdefghijklmnopqrstuvwxyz 1 234567890",
+        scn::runtime_format("abcdefghijklmnopqrstuvwxyz {} 23456789"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), "1");
+}
+TEST(FormatStringTest, LongFormatString2)
+{
+    auto result = scn::scan<std::string>(
+        "123456789 0 abcdefghijklmnopqrstuvwxyz",
+        scn::runtime_format("123456789 {} abcdefghijklmnopqrstuvwxyz"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), "0");
+}
+TEST(FormatStringTest, LongFormatString3)
+{
+    auto result = scn::scan<char>(
+        "abcdefghijklmnopqrstuvwxyz {}1{} 234567890",
+        scn::runtime_format("abcdefghijklmnopqrstuvwxyz {{}}{}{{}} 23456789"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), '1');
+}
+TEST(FormatStringTest, LongFormatString4)
+{
+    auto result = scn::scan<char>(
+        "123456789 {}0{} abcdefghijklmnopqrstuvwxyz",
+        scn::runtime_format("123456789 {{}}{}{{}} abcdefghijklmnopqrstuvwxyz"));
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->value(), '0');
+}
+
+TEST(FormatStringTest, MatchLiteralInvalidEncoding)
+{
+    auto result =
+        scn::scan<>("\xc3\na\xa4", scn::runtime_format("\xc3\na\xa4"));
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code(), scn::scan_error::invalid_format_string);
+}
+
+TEST(FormatStringTest, FuzzingError)
+{
+    using namespace std::string_view_literals;
+    auto s =
+        ":+{}{\000\000\000}\000\000\000\000\000\000\000\000\000\000\000\000}}U\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247{{\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\247\377\377\377\377\377\377\377\377\377\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\346\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\000\000[}\000"sv;
+    auto result = scn::scan<std::string>(s, scn::runtime_format(s));
+    ASSERT_FALSE(result);
+}
+
+TEST(FormatStringTest, FuzzingError2)
+{
+    char narrow_s[] = {'{', 0, 0, 0,   ':', 0, 0, 0,  '[',
+                       0,   0, 0, '^', 0,   0, 0, ']'};
+    std::wstring ws;
+    ws.resize(sizeof(narrow_s) / sizeof(wchar_t));
+    std::memcpy(ws.data(), narrow_s, sizeof(narrow_s));
+    auto result = scn::scan<wchar_t>(ws, scn::runtime_format(ws));
+    ASSERT_FALSE(result);
 }

@@ -15,29 +15,26 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "wrapped_gtest.h"
 
-#include <scn/detail/format_string_parser.h>
+#include <scn/scan.h>
 
 TEST(FormatStringParserTest, DefaultConstructedSpecs)
 {
-    auto specs = scn::detail::basic_format_specs<char>{};
+    auto specs = scn::detail::format_specs{};
     EXPECT_EQ(specs.width, 0);
-    EXPECT_EQ(specs.fill, " ");
+    EXPECT_EQ(specs.fill.get_code_unit<char>(), ' ');
     EXPECT_EQ(specs.type, scn::detail::presentation_type::none);
     EXPECT_EQ(specs.arbitrary_base, 0);
-    EXPECT_EQ(specs.align,
-              static_cast<unsigned>(scn::detail::align_type::none));
+    EXPECT_EQ(specs.align, scn::detail::align_type::none);
     EXPECT_EQ(specs.localized, false);
-    EXPECT_EQ(specs.thsep, false);
 }
 
 TEST(FormatStringParserTest, ParsePresentationType)
 {
     EXPECT_EQ(scn::detail::parse_presentation_type('i'),
               scn::detail::presentation_type::int_generic);
-    EXPECT_EQ(scn::detail::parse_presentation_type('B'),
+    EXPECT_EQ(scn::detail::parse_presentation_type('r'),
               scn::detail::presentation_type::int_arbitrary_base);
     EXPECT_EQ(scn::detail::parse_presentation_type('a'),
               scn::detail::parse_presentation_type('A'));
@@ -48,24 +45,24 @@ TEST(FormatStringParserTest, ParsePresentationType)
 }
 
 namespace scn {
-    SCN_BEGIN_NAMESPACE
+SCN_BEGIN_NAMESPACE
 
-    namespace detail {
-        static inline bool operator==(const basic_format_specs<char>& a,
-                                      const basic_format_specs<char>& b)
-        {
-            return a.width == b.width && a.fill == b.fill && a.type == b.type &&
-                   a.arbitrary_base == b.arbitrary_base && a.align == b.align &&
-                   a.localized == b.localized && a.thsep == b.thsep;
-        }
-    }  // namespace detail
+namespace detail {
+static inline bool operator==(const format_specs& a, const format_specs& b)
+{
+    return a.width == b.width &&
+           a.fill.get_code_units<char>() == b.fill.get_code_units<char>() &&
+           a.type == b.type && a.arbitrary_base == b.arbitrary_base &&
+           a.align == b.align && a.localized == b.localized;
+}
+}  // namespace detail
 
-    SCN_END_NAMESPACE
+SCN_END_NAMESPACE
 }  // namespace scn
 
-struct mock_specs_setter : public scn::detail::specs_setter<char> {
-    mock_specs_setter(scn::detail::basic_format_specs<char>& specs)
-        : scn::detail::specs_setter<char>{specs}
+struct mock_specs_setter : public scn::detail::specs_setter {
+    constexpr mock_specs_setter(scn::detail::format_specs& specs)
+        : scn::detail::specs_setter(specs)
     {
     }
 
@@ -79,7 +76,7 @@ struct mock_specs_setter : public scn::detail::specs_setter<char> {
 
 class FormatStringParserAlignTest : public testing::Test {
 protected:
-    scn::detail::basic_format_specs<char> specs{};
+    scn::detail::format_specs specs{};
     mock_specs_setter handler{specs};
 };
 
@@ -88,10 +85,9 @@ TEST_F(FormatStringParserAlignTest, NoAlignNoFill)
     std::string_view input{"}"};
     auto result = scn::detail::parse_align(
         input.data(), input.data() + input.size(), handler);
-    EXPECT_EQ(specs.fill, " ");
-    EXPECT_EQ(specs.align,
-              static_cast<unsigned>(scn::detail::align_type::none));
-    EXPECT_EQ(specs, scn::detail::basic_format_specs<char>{});
+    EXPECT_EQ(specs.fill.get_code_unit<char>(), ' ');
+    EXPECT_EQ(specs.align, scn::detail::align_type::none);
+    EXPECT_EQ(specs, scn::detail::format_specs{});
     EXPECT_EQ(result, input.data());
     EXPECT_EQ(handler.latest_error, nullptr);
 }
@@ -101,9 +97,8 @@ TEST_F(FormatStringParserAlignTest, LeftAlignNoFill)
     std::string_view input{"<}"};
     auto result = scn::detail::parse_align(
         input.data(), input.data() + input.size(), handler);
-    EXPECT_EQ(specs.fill, " ");
-    EXPECT_EQ(specs.align,
-              static_cast<unsigned>(scn::detail::align_type::left));
+    EXPECT_EQ(specs.fill.get_code_unit<char>(), ' ');
+    EXPECT_EQ(specs.align, scn::detail::align_type::left);
     EXPECT_EQ(result, input.data() + 1);
     EXPECT_EQ(handler.latest_error, nullptr);
 }
@@ -113,9 +108,8 @@ TEST_F(FormatStringParserAlignTest, RightAlignWithFill)
     std::string_view input{"_>}"};
     auto result = scn::detail::parse_align(
         input.data(), input.data() + input.size(), handler);
-    EXPECT_EQ(specs.fill, "_");
-    EXPECT_EQ(specs.align,
-              static_cast<unsigned>(scn::detail::align_type::right));
+    EXPECT_EQ(specs.fill.get_code_unit<char>(), '_');
+    EXPECT_EQ(specs.align, scn::detail::align_type::right);
     EXPECT_EQ(result, input.data() + 2);
     EXPECT_EQ(handler.latest_error, nullptr);
 }
@@ -125,22 +119,27 @@ TEST_F(FormatStringParserAlignTest, InvalidFillCharacter)
     std::string_view input{"{^}"};
     std::ignore = scn::detail::parse_align(
         input.data(), input.data() + input.size(), handler);
-    EXPECT_EQ(specs, scn::detail::basic_format_specs<char>{});
+    EXPECT_EQ(specs, scn::detail::format_specs{});
     EXPECT_NE(handler.latest_error, nullptr);
 }
 
 class FormatStringParserWidthTest : public ::testing::Test {
-    // TODO
+protected:
+    scn::detail::format_specs specs{};
+    mock_specs_setter handler{specs};
 };
 
-TEST_F(FormatStringParserWidthTest, Test)
+TEST_F(FormatStringParserWidthTest, WidthTooLarge)
 {
-    SUCCEED();
+    std::string_view input{"9999999999999999999999999999999999}"};
+    std::ignore = scn::detail::parse_width(
+        input.data(), input.data() + input.size(), handler);
+    ASSERT_NE(handler.latest_error, nullptr);
 }
 
 class FormatStringParserFormatSpecsTest : public ::testing::Test {
 protected:
-    scn::detail::basic_format_specs<char> specs{};
+    scn::detail::format_specs specs{};
     mock_specs_setter handler{specs};
 };
 
@@ -150,10 +149,11 @@ TEST_F(FormatStringParserFormatSpecsTest, EmptySpecs)
     auto result = scn::detail::parse_format_specs(
         input.data(), input.data() + input.size(), handler);
     EXPECT_EQ(result, input.data());
-    EXPECT_EQ(specs, scn::detail::basic_format_specs<char>{});
+    EXPECT_EQ(specs, scn::detail::format_specs{});
     EXPECT_EQ(handler.latest_error, nullptr);
 }
 
+#if !SCN_DISABLE_LOCALE
 TEST_F(FormatStringParserFormatSpecsTest, Localized)
 {
     std::string_view input{"L}"};
@@ -163,3 +163,4 @@ TEST_F(FormatStringParserFormatSpecsTest, Localized)
     EXPECT_EQ(specs.localized, true);
     EXPECT_EQ(handler.latest_error, nullptr);
 }
+#endif

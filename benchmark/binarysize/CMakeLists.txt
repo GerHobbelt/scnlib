@@ -1,5 +1,5 @@
 function(generate_binarysize_test_files template outdir sources)
-    set(binarysize_test_path "${CMAKE_CURRENT_LIST_DIR}/${outdir}/")
+    set(binarysize_test_path "${CMAKE_CURRENT_BINARY_DIR}/${outdir}/")
     set(binarysize_test_main "${binarysize_test_path}/binarysize_test_main.cpp")
     set(binarysize_test_header "${binarysize_test_path}/binarysize_test_all.h")
 
@@ -35,9 +35,8 @@ target_compile_options(scn_benchmark_binarysize_base INTERFACE
         -Wno-missing-declarations>
         $<$<CXX_COMPILER_ID:Clang>:
         -Wno-unused-variable
-        -Wno-missing-prototypes>
-        $<$<CXX_COMPILER_ID:MSVC>:
-        /D_CRT_SECURE_NO_WARNINGS>)
+        -Wno-missing-prototypes>)
+disable_msvc_secure_flags(scn_benchmark_binarysize_base INTERFACE)
 
 # control
 generate_binarysize_test_files("${CMAKE_CURRENT_LIST_DIR}/template-control.cpp" out/control binarysize_control_sources)

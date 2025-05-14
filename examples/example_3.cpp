@@ -17,21 +17,19 @@
 
 #include <scn/scan.h>
 
+#include <vector>
+
 int main()
 {
     std::string source{
         "1 2 3 4 5 6 7 8 9 11 22 33 44 55 66 77 88 99 111 222 333 444 555 666 "
         "777 888 999"};
-    auto range = scn::scan_map_input_range(source);
     std::vector<int> integers;
+    auto input = scn::ranges::subrange{source};
 
-    while (true) {
-        auto [result, i] = scn::scan<int>(range, "{}");
-        if (!result) {
-            break;
-        }
-        integers.push_back(i);
-        range = result.range();
+    while (auto result = scn::scan<int>(input, "{}")) {
+        integers.push_back(result->value());
+        input = result->range();
     }
 
     for (auto i : integers) {

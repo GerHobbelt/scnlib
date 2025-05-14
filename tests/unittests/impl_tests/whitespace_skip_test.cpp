@@ -15,15 +15,15 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include <gtest/gtest.h>
+#include "../wrapped_gtest.h"
 
-#include <scn/impl/reader/common.h>
+#include <scn/impl.h>
 
 namespace {
     std::ptrdiff_t PositionOfFirstNonSpace(std::string_view src)
     {
         auto it = scn::impl::skip_classic_whitespace(src, true);
-        return scn::impl::range_nocopy_data(*it) - src.data();
+        return scn::detail::to_address(*it) - src.data();
     }
 }  // namespace
 

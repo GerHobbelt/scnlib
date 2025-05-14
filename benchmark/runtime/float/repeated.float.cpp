@@ -23,17 +23,19 @@
 #include <charconv>
 #endif
 
+#include <fast_float/fast_float.h>
+
 template <typename Float>
 static void scan_float_repeated_scn(benchmark::State& state)
 {
-    auto data = get_float_string<Float>();
-    auto range = scn::scan_map_input_range(data);
+    repeated_state<Float> s{get_float_string<Float>()};
+
     for (auto _ : state) {
-        auto [result, f] = scn::scan<Float>(range, "{}");
+        auto result = scn::scan<Float>(s.view(), "{}");
 
         if (!result) {
-            if (result.error() == scn::scan_error::end_of_range) {
-                range = scn::scan_map_input_range(data);
+            if (result.error() == scn::scan_error::end_of_input) {
+                s.reset();
             }
             else {
                 state.SkipWithError("Scan error");
@@ -41,12 +43,11 @@ static void scan_float_repeated_scn(benchmark::State& state)
             }
         }
         else {
-            benchmark::DoNotOptimize(f);
-            range = SCN_MOVE(result.range());
+            s.push(result->value());
+            s.it = scn::detail::to_address(result->range().begin());
         }
     }
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(sizeof(Float)));
+    state.SetBytesProcessed(s.get_bytes_processed(state));
 }
 BENCHMARK_TEMPLATE(scan_float_repeated_scn, float);
 BENCHMARK_TEMPLATE(scan_float_repeated_scn, double);
@@ -55,14 +56,14 @@ BENCHMARK_TEMPLATE(scan_float_repeated_scn, long double);
 template <typename Float>
 static void scan_float_repeated_scn_value(benchmark::State& state)
 {
-    auto data = get_float_string<Float>();
-    auto range = scn::scan_map_input_range(data);
+    repeated_state<Float> s{get_float_string<Float>()};
+
     for (auto _ : state) {
-        auto [result, f] = scn::scan_value<Float>(range);
+        auto result = scn::scan_value<Float>(s.view());
 
         if (!result) {
-            if (result.error() == scn::scan_error::end_of_range) {
-                range = scn::scan_map_input_range(data);
+            if (result.error() == scn::scan_error::end_of_input) {
+                s.reset();
             }
             else {
                 state.SkipWithError("Scan error");
@@ -70,12 +71,11 @@ static void scan_float_repeated_scn_value(benchmark::State& state)
             }
         }
         else {
-            benchmark::DoNotOptimize(f);
-            range = SCN_MOVE(result.range());
+            s.push(result->value());
+            s.it = scn::detail::to_address(result->range().begin());
         }
     }
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(sizeof(Float)));
+    state.SetBytesProcessed(s.get_bytes_processed(state));
 }
 BENCHMARK_TEMPLATE(scan_float_repeated_scn_value, float);
 BENCHMARK_TEMPLATE(scan_float_repeated_scn_value, double);
@@ -84,22 +84,26 @@ BENCHMARK_TEMPLATE(scan_float_repeated_scn_value, long double);
 template <typename Float>
 static void scan_float_repeated_sstream(benchmark::State& state)
 {
-    auto data = get_float_string<Float>();
-    auto stream = std::istringstream(data);
+    repeated_state<Float> s{get_float_string<Float>()};
+    std::istringstream stream{s.source};
+
     for (auto _ : state) {
         Float f{};
         stream >> f;
 
         if (stream.eof()) {
-            stream = std::istringstream(data);
+            stream = std::istringstream(s.source);
+            s.reset();
         }
         else if (stream.fail()) {
             state.SkipWithError("Scan error");
             break;
         }
+        else {
+            s.push(f);
+        }
     }
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(sizeof(Float)));
+    state.SetBytesProcessed(s.get_bytes_processed(state));
 }
 BENCHMARK_TEMPLATE(scan_float_repeated_sstream, float);
 BENCHMARK_TEMPLATE(scan_float_repeated_sstream, double);
@@ -108,60 +112,102 @@ BENCHMARK_TEMPLATE(scan_float_repeated_sstream, long double);
 template <typename Float>
 static void scan_float_repeated_scanf(benchmark::State& state)
 {
-    auto data = get_float_string<Float>();
-    const char* ptr = data.data();
+    repeated_state<Float> s{get_float_string<Float>()};
 
     for (auto _ : state) {
         Float f{};
 
-        auto ret = sscanf_float_n(ptr, f);
+        auto ret = sscanf_float_n(s.it, f);
         if (ret != 1) {
             if (ret == EOF) {
-                ptr = data.data();
+                s.reset();
                 continue;
             }
 
             state.SkipWithError("Scan error");
             break;
         }
-        benchmark::DoNotOptimize(f);
+        s.push(f);
     }
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(sizeof(Float)));
+    state.SetBytesProcessed(s.get_bytes_processed(state));
 }
 BENCHMARK_TEMPLATE(scan_float_repeated_scanf, float);
 BENCHMARK_TEMPLATE(scan_float_repeated_scanf, double);
 BENCHMARK_TEMPLATE(scan_float_repeated_scanf, long double);
+
+template <typename Float>
+static void scan_float_repeated_strtod(benchmark::State& state)
+{
+    repeated_state<Float> s{get_float_string<Float>()};
+
+    for (auto _ : state) {
+        Float f{};
+        s.skip_classic_ascii_space();
+
+        auto ret = strtod_float_n(s.it, f);
+        if (ret != 0) {
+            if (ret == EOF) {
+                s.reset();
+                continue;
+            }
+
+            state.SkipWithError("Scan error");
+            break;
+        }
+        s.push(f);
+    }
+    state.SetBytesProcessed(s.get_bytes_processed(state));
+}
+BENCHMARK_TEMPLATE(scan_float_repeated_strtod, float);
+BENCHMARK_TEMPLATE(scan_float_repeated_strtod, double);
+BENCHMARK_TEMPLATE(scan_float_repeated_strtod, long double);
 
 #if SCN_HAS_FLOAT_CHARCONV
 
 template <typename Float>
 static void scan_float_repeated_charconv(benchmark::State& state)
 {
-    auto data = get_float_string<Float>();
-    const char* ptr = data.data();
+    repeated_state<Float> s{get_float_string<Float>()};
 
     for (auto _ : state) {
         Float f{};
+        s.skip_classic_ascii_space();
 
-        for (; std::isspace(*ptr) != 0; ++ptr) {}
-        if (ptr == data.data() + data.size()) {
-            ptr = data.data();
-        }
-
-        auto ret = std::from_chars(ptr, data.data() + data.size(), f);
+        auto ret = std::from_chars(s.view().begin(), s.view().end(), f);
         if (ret.ec != std::errc{}) {
             state.SkipWithError("Scan error");
             break;
         }
-        ptr = ret.ptr;
-        benchmark::DoNotOptimize(f);
+        s.it = ret.ptr;
+        s.push(f);
     }
-    state.SetBytesProcessed(state.iterations() *
-                            static_cast<int64_t>(sizeof(Float)));
+    state.SetBytesProcessed(s.get_bytes_processed(state));
 }
 BENCHMARK_TEMPLATE(scan_float_repeated_charconv, float);
 BENCHMARK_TEMPLATE(scan_float_repeated_charconv, double);
 BENCHMARK_TEMPLATE(scan_float_repeated_charconv, long double);
 
 #endif  // SCN_HAS_FLOAT_CHARCONV
+
+template <typename Float>
+static void scan_float_repeated_fastfloat(benchmark::State& state)
+{
+    repeated_state<Float> s{get_float_string<Float>()};
+
+    for (auto _ : state) {
+        Float f{};
+        s.skip_classic_ascii_space();
+
+        auto ret = fast_float::from_chars(s.view().begin(), s.view().end(), f);
+        if (ret.ec != std::errc{}) {
+            state.SkipWithError("Scan error");
+            break;
+        }
+        s.it = ret.ptr;
+        s.push(f);
+    }
+    state.SetBytesProcessed(s.get_bytes_processed(state));
+}
+BENCHMARK_TEMPLATE(scan_float_repeated_fastfloat, float);
+BENCHMARK_TEMPLATE(scan_float_repeated_fastfloat, double);
+BENCHMARK_TEMPLATE(scan_float_repeated_fastfloat, long double);
