@@ -21,7 +21,13 @@
 #include <map>
 #include <vector>
 
-int main()
+#include "monolithic_examples.h"
+
+#if defined(BUILD_MONOLITHIC)
+#define main  scanf_example_04_main
+#endif
+
+int main(void)
 {
     std::string source{R"([{1: 2, 3: 4}, {5: 6}])"};
 
@@ -37,4 +43,6 @@ int main()
                         b.first, b.second, c.first, c.second);
         })
         .transform_error([](scn::scan_error) { std::puts("failure"); });
+
+	return 0;
 }

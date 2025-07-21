@@ -19,7 +19,13 @@
 #include <cstdio>
 #include <string_view>
 
-int main() {
+#include "monolithic_examples.h"
+
+#if defined(BUILD_MONOLITHIC)
+#define main  scanf_charconv_compile_test_main
+#endif
+
+int main(void) {
     std::string_view input("3.14");
     double value{};
     auto [ptr, ec] = std::from_chars(input.data(), input.data() + input.size(), value);

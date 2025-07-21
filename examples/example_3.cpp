@@ -19,7 +19,14 @@
 
 #include <vector>
 
-int main()
+#include "monolithic_examples.h"
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main  scanf_example_03_main
+#endif
+
+int main(void)
 {
     std::string source{
         "1 2 3 4 5 6 7 8 9 11 22 33 44 55 66 77 88 99 111 222 333 444 555 666 "
@@ -35,4 +42,6 @@ int main()
     for (auto i : integers) {
         std::printf("%d\n", i);
     }
+
+	return 0;
 }

@@ -838,7 +838,7 @@ struct setter_state {
     template <typename Hour>
     constexpr void handle_am_pm(Hour& hour)
     {
-        assert(hour12_set);
+        assert(!!hour12_set);
         assert(hour <= 12);
         if (is_pm) {
             // PM

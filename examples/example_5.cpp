@@ -17,7 +17,13 @@
 
 #include <scn/scan.h>
 
-int main()
+#include "monolithic_examples.h"
+
+#if defined(BUILD_MONOLITHIC)
+#define main  scanf_example_05_main
+#endif
+
+int main(void)
 {
     std::puts("Write two integers:");
 
@@ -42,4 +48,6 @@ int main()
     std::ignore = std::fgets(buf.data(), 255, stdin);
 
     std::printf("Entire line: %s", buf.c_str());
+
+    return 0;
 }

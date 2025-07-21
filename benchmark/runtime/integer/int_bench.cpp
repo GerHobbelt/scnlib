@@ -15,6 +15,8 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
+#define BENCHMARK_FAMILY_ID "scanf_integer"
+
 #include "benchmark_common.h"
 
 BENCHMARK_MAIN();

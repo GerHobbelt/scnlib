@@ -15,6 +15,8 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
+#define BENCHMARK_FAMILY_ID "scanf_float"
+
 #include "benchmark_common.h"
 
 #include "float_bench.h"
