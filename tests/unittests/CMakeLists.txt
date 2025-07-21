@@ -13,9 +13,8 @@ target_compile_options(scn_tests_base INTERFACE
         -Wno-gnu-zero-variadic-macro-arguments
         -Wno-global-constructors
         -Wno-exit-time-destructors
-        -Wno-weak-vtables
-        >)
-
+        -Wno-weak-vtables>
+)
 
 add_executable(scn_tests
         main.cpp
@@ -74,7 +73,36 @@ add_executable(scn_impl_tests
 )
 target_link_libraries(scn_impl_tests PRIVATE
         ${SCN_GTEST_LIBRARIES} scn_tests_base scn_internal)
+# pragma ignores seem to not always work for overflowing literals
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(
+            impl_tests/float_reader_test.cpp
+            PROPERTIES COMPILE_OPTIONS
+            -Wno-overflow
+    )
+endif ()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set_source_files_properties(
+            impl_tests/float_reader_test.cpp
+            PROPERTIES COMPILE_OPTIONS
+            -Wno-literal-range
+    )
+endif ()
 add_test(NAME scn_impl_tests COMMAND scn_impl_tests)
+
+if (SCN_MODULES)
+    add_executable(scn_module_tests module_test.cpp)
+    target_link_libraries(scn_module_tests PRIVATE scn_module INTERFACE scn_sanitizers)
+
+    target_uses_extensions(scn_module use_stdext)
+    set_target_properties(
+            scn_module_tests PROPERTIES
+            CXX_SCAN_FOR_MODULES ON
+            CXX_EXTENSIONS ${use_stdext}
+    )
+
+    add_test(NAME scn_module_tests COMMAND scn_module_tests)
+endif ()
 
 if (SCN_TESTS_LOCALIZED)
     add_executable(scn_localized_tests

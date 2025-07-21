@@ -15,22 +15,21 @@
 // This file is a part of scnlib:
 //     https://github.com/eliaskosunen/scnlib
 
-#include "../wrapped_gtest.h"
+import scn;
 
-#include <scn/impl.h>
+#include <stdexcept>
+#include <string>
 
-static int identity_fn(int a)
+int main()
 {
-    return a;
-}
+    auto result = scn::scan<int>("42", "{}");
 
-TEST(FunctionRefTest, Test)
-{
-    EXPECT_EQ(scn::impl::function_ref<int(int)>(identity_fn)(42), 42);
-
-    EXPECT_EQ(scn::impl::function_ref<int(int)>([](int a) { return a; })(42),
-              42);
-
-    int n = 42;
-    EXPECT_EQ(scn::impl::function_ref<int()>([&]() { return n; })(), 42);
+    if (!result) {
+        throw std::runtime_error("Failed to scan: " +
+                                 std::string{result.error().msg()});
+    }
+    if (result->value() != 42) {
+        throw std::runtime_error("Invalid value: " +
+                                 std::to_string(result->value()));
+    }
 }

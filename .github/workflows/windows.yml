@@ -6,6 +6,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/windows.yml'
       - 'benchmark/**'
@@ -20,6 +21,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/windows.yml'
       - 'benchmark/**'
@@ -53,30 +55,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 2019, 2022 ]
+        os:
+          # Deleted in June 2025, where we also lost VS2019 :(
+          # - 2019
+          - 2022
+          # Not necessary, both 2022 and 2025 have VS2022
+          # - 2025
         platform: [ Win32, x64 ]
         type: [ Debug, Release ]
         std: [ 17 ]
         include:
-          - os: 2019
-            platform: x64
-            type: Debug
-            std: 20
           - os: 2022
             platform: x64
             type: Debug
             std: 20
-
-        exclude:
-          # Segfaulting in the tests, not locally reproducible
-          - os: 2022
-            platform: Win32
-            type: Release
-            std: 17
-          - os: 2022
-            platform: x64
-            type: Release
-            std: 17
 
     steps:
       - name: Checkout
@@ -112,7 +104,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . --config ${{ matrix.type }} --parallel
+        run: cmake --build . --config ${{ matrix.type }} --parallel --verbose
 
       - name: Show ccache stats
         run: |
@@ -127,7 +119,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 2019, 2022 ]
+        os:
+          # - 2019
+          - 2022
         std: [ 17, 20 ]
         platform: [ x64 ]
 
@@ -166,7 +160,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . --config Debug --parallel
+        run: cmake --build . --config Debug --parallel --verbose
 
       - name: Show ccache stats
         run: |
@@ -192,15 +186,17 @@ jobs:
           - mingw32
           - mingw64
           # llvm, ucrt, libc++
-          - clang32
           - clang64
+          # llvm, ucrt, libc++ on arm64
+          - clangarm64
           # gcc, cygwin, libstdc++ (64-bit)
           - msys
 
         exclude:
-          # Buggy float parsing
-          - sys: clang32
-          - sys: clang64
+          # Doesn't have ccache
+          - sys: clangarm64
+          # Doesn't have the `toolchain` pacboy package
+          # (which contains the compiler)
           - sys: msys
 
     steps:
@@ -244,7 +240,7 @@ jobs:
           cd build
           cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
             -DSCN_DISABLE_TOP_PROJECT=ON -DSCN_PEDANTIC=ON -DSCN_TESTS=ON -DSCN_EXAMPLES=ON ..
-          cmake --build . --parallel -- -k 0
+          cmake --build . --parallel --verbose -- -k 0
           ctest --output-on-failure
 
       - name: Show ccache stats

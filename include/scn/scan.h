@@ -20,16 +20,26 @@
 // Includes <cassert>, <cstddef>, <cstdint>, and <type_traits>
 #include <scn/fwd.h>
 
+#if defined(SCN_MODULE) && defined(SCN_IMPORT_STD)
+import std;
+#else
 #include <array>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <tuple>
+
+#if SCN_HAS_STD_F16 || SCN_HAS_STD_F32 || SCN_HAS_STD_F64 || \
+    SCN_HAS_STD_F128 || SCN_HAS_STD_BF16
+#include <stdfloat>
+#endif
+#endif
 
 namespace scn {
 SCN_BEGIN_NAMESPACE
@@ -71,6 +81,8 @@ template <typename T>
 using mp_to_bool = mp_bool<static_cast<bool>(T::value)>;
 template <typename T>
 using mp_not = mp_bool<!T::value>;
+template <auto A>
+using mp_value = std::integral_constant<decltype(A), A>;
 
 template <bool C, typename T, typename... E>
 struct mp_if_c_impl;
@@ -158,6 +170,19 @@ using mp_valid_result =
     mp_if<mp_valid<F, T...>, mp_defer_impl<F, T...>, mp_identity<void>>;
 template <template <typename...> class F, typename... T>
 using mp_valid_result_t = typename mp_valid_result<F, T...>::type;
+
+// mp_cond
+template <class C, class T, class... E>
+struct mp_cond_impl;
+
+template <class C, class T, class... E>
+using mp_cond = typename mp_cond_impl<C, T, E...>::type;
+
+template <class C, class T, class... E>
+using mp_cond_ = mp_eval_if<C, T, mp_cond, E...>;
+
+template <class C, class T, class... E>
+struct mp_cond_impl : mp_defer<mp_cond_, C, T, E...> {};
 
 /////////////////////////////////////////////////////////////////
 // pointer_traits and to_address
@@ -322,6 +347,9 @@ SCN_FORCE_INLINE constexpr auto to_address(Ptr&& p) noexcept
 // <expected> implementation
 /////////////////////////////////////////////////////////////////
 
+SCN_GCC_PUSH
+SCN_GCC_IGNORE("-Wnoexcept")
+
 // The following implementation of expected is based on TartanLlama/expected,
 // but is heavily modified.
 //
@@ -339,6 +367,9 @@ class SCN_TRIVIAL_ABI unexpected {
 public:
     unexpected() = delete;
 
+    SCN_GCC_PUSH
+    SCN_GCC_IGNORE("-Wmaybe-uninitialized")
+
     template <
         typename Err = E,
         typename = std::enable_if_t<!std::is_same_v<Err, unexpected> &&
@@ -350,6 +381,8 @@ public:
     {
         SCN_UNLIKELY_ATTR SCN_UNUSED(m_unexpected);
     }
+
+    SCN_GCC_POP
 
     template <typename... Args,
               typename = std::enable_if_t<std::is_constructible_v<E, Args...>>>
@@ -410,13 +443,13 @@ void destroy_at(T* p) noexcept
 }
 
 struct deferred_init_tag_t {};
-static constexpr deferred_init_tag_t deferred_init_tag{};
+inline constexpr deferred_init_tag_t deferred_init_tag{};
 
 template <typename T,
           typename E,
           bool IsTriviallyDestructible =
-              (std::is_void_v<T> || std::is_trivially_destructible_v<T>)&&std::
-                  is_trivially_destructible_v<E>>
+              (std::is_void_v<T> || std::is_trivially_destructible_v<T>) &&
+              std::is_trivially_destructible_v<E>>
 struct expected_storage_base;
 
 template <typename T, typename E>
@@ -849,9 +882,8 @@ template <typename T, typename E>
 struct SCN_TRIVIAL_ABI expected_operations_base<
     T,
     E,
-    std::enable_if_t<(
-        std::is_void_v<T> ||
-        std::is_trivially_copyable_v<T>)&&std::is_trivially_copyable_v<E>>>
+    std::enable_if_t<(std::is_void_v<T> || std::is_trivially_copyable_v<T>) &&
+                     std::is_trivially_copyable_v<E>>>
     : expected_storage_base<T, E> {
     using expected_storage_base<T, E>::expected_storage_base;
 };
@@ -1181,10 +1213,10 @@ private:
 template <
     typename T,
     typename E,
-    bool EnableCopy = ((std::is_copy_constructible_v<T> ||
-                        std::is_void_v<T>)&&std::is_copy_constructible_v<E>),
-    bool EnableMove = ((std::is_move_constructible_v<T> ||
-                        std::is_void_v<T>)&&std::is_move_constructible_v<E>)>
+    bool EnableCopy = ((std::is_copy_constructible_v<T> || std::is_void_v<T>) &&
+                       std::is_copy_constructible_v<E>),
+    bool EnableMove = ((std::is_move_constructible_v<T> || std::is_void_v<T>) &&
+                       std::is_move_constructible_v<E>)>
 struct expected_delete_ctor_base;
 
 // Implementation for types that are both copy and move
@@ -1241,14 +1273,14 @@ struct SCN_TRIVIAL_ABI expected_delete_ctor_base<T, E, true, false> {
 template <
     typename T,
     typename E,
-    bool EnableCopy = ((std::is_copy_constructible_v<T> ||
-                        std::is_void_v<T>)&&std::is_copy_constructible_v<E> &&
-                       (std::is_copy_assignable_v<T> ||
-                        std::is_void_v<T>)&&std::is_copy_assignable_v<E>),
-    bool EnableMove = ((std::is_move_constructible_v<T> ||
-                        std::is_void_v<T>)&&std::is_move_constructible_v<E> &&
-                       (std::is_move_assignable_v<T> ||
-                        std::is_void_v<T>)&&std::is_move_assignable_v<E>)>
+    bool EnableCopy = ((std::is_copy_constructible_v<T> || std::is_void_v<T>) &&
+                       std::is_copy_constructible_v<E> &&
+                       (std::is_copy_assignable_v<T> || std::is_void_v<T>) &&
+                       std::is_copy_assignable_v<E>),
+    bool EnableMove = ((std::is_move_constructible_v<T> || std::is_void_v<T>) &&
+                       std::is_move_constructible_v<E> &&
+                       (std::is_move_assignable_v<T> || std::is_void_v<T>) &&
+                       std::is_move_assignable_v<E>)>
 struct expected_delete_assign_base;
 
 template <typename T, typename E>
@@ -3475,23 +3507,25 @@ public:
     {
     }
 
-    constexpr I begin() const
+    SCN_NODISCARD constexpr I begin() const
+        noexcept(std::is_nothrow_copy_constructible_v<I>)
     {
         return m_iterator;
     }
-    constexpr S end() const
+    SCN_NODISCARD constexpr S end() const
+        noexcept(std::is_nothrow_copy_constructible_v<S>)
     {
         return m_sentinel;
     }
 
-    SCN_NODISCARD constexpr bool empty() const
+    SCN_NODISCARD constexpr bool empty() const noexcept
     {
         return m_iterator == m_sentinel;
     }
 
     template <typename I_ = I,
               std::enable_if_t<sized_sentinel_for<S, I_>>* = nullptr>
-    constexpr std::size_t size() const
+    SCN_NODISCARD constexpr std::size_t size() const noexcept
     {
         return static_cast<size_t>(m_sentinel - m_iterator);
     }
@@ -3613,6 +3647,13 @@ inline constexpr bool
     enable_borrowed_range<std::basic_string_view<CharT, Traits>> = true;
 }
 
+SCN_GCC_POP  // -Wnoexcept (for the entirety of the expected and ranges impls)
+
+    // reset formatting
+    namespace detail
+{
+}
+
 /////////////////////////////////////////////////////////////////
 // Small generic algorithms
 /////////////////////////////////////////////////////////////////
@@ -3691,7 +3732,7 @@ public:
         end_of_input,
 
         /// Format string was invalid.
-        /// Often a compile-time error, if supported or enabled.
+        /// Often a compile-time error, if supported and/or enabled.
         invalid_format_string,
 
         /// Scanned value was invalid for given type,
@@ -3728,6 +3769,10 @@ public:
         /// Value out of range, magnitude too small, sign -
         /// (between 0 and the smallest subnormal float)
         value_negative_underflow,
+
+        /// Value of this type can't be parsed,
+        /// either from this source or not at all.
+        type_not_supported,
 
         max_error
     };
@@ -3768,6 +3813,7 @@ public:
             case invalid_literal:
             case invalid_fill:
             case length_too_short:
+            case type_not_supported:
                 return std::errc::invalid_argument;
             case invalid_source_state:
                 return std::errc::io_error;
@@ -3777,9 +3823,12 @@ public:
             case value_negative_underflow:
                 return std::errc::result_out_of_range;
             case max_error:
+                SCN_CLANG_PUSH
+                SCN_CLANG_IGNORE("-Wcovered-switch-default")
             default:
                 assert(false);
                 SCN_UNREACHABLE;
+                SCN_CLANG_POP
         }
     }
 
@@ -3823,6 +3872,9 @@ SCN_COLD scan_error handle_error(scan_error e);
 #if SCN_HAS_EXCEPTIONS
 
 namespace detail {
+
+SCN_CLANG_PUSH
+SCN_CLANG_IGNORE("-Wweak-vtables")
 
 class scan_format_string_error_base : public std::runtime_error {
 public:
@@ -3889,17 +3941,19 @@ public:
     {
     }
 };
+
+SCN_CLANG_POP  // -Wweak-vtables
 #endif
 
-/**
- * An `expected<T, scan_error>`.
- *
- * Not a type alias to shorten template names.
- *
- * \ingroup result
- */
-template <typename T>
-struct scan_expected : public expected<T, scan_error> {
+    /**
+     * An `expected<T, scan_error>`.
+     *
+     * Not a type alias to shorten template names.
+     *
+     * \ingroup result
+     */
+    template <typename T>
+    struct scan_expected : public expected<T, scan_error> {
     using expected<T, scan_error>::expected;
 
     scan_expected(const expected<T, scan_error>& other)
@@ -3926,17 +3980,19 @@ struct is_expected_impl<scan_expected<T>> : std::true_type {};
 #define SCN_TRY_IMPL_CONCAT2(a, b) SCN_TRY_IMPL_CONCAT(a, b)
 #define SCN_TRY_TMP                SCN_TRY_IMPL_CONCAT2(_scn_try_tmp_, __LINE__)
 
-#define SCN_TRY_DISCARD(x)                                      \
-    if (auto&& SCN_TRY_TMP = (x); SCN_UNLIKELY(!SCN_TRY_TMP)) { \
-        return ::scn::unexpected(SCN_TRY_TMP.error());          \
-    }
+#define SCN_TRY_DISCARD(x)                                          \
+    do {                                                            \
+        if (auto&& SCN_TRY_TMP = (x); SCN_UNLIKELY(!SCN_TRY_TMP)) { \
+            return ::scn::unexpected(SCN_TRY_TMP.error());          \
+        }                                                           \
+    } while (false)
 
 #define SCN_TRY_ASSIGN(init, x)                        \
     auto&& SCN_TRY_TMP = (x);                          \
     if (SCN_UNLIKELY(!SCN_TRY_TMP)) {                  \
         return ::scn::unexpected(SCN_TRY_TMP.error()); \
     }                                                  \
-    init = *SCN_FWD(SCN_TRY_TMP);
+    init = *SCN_FWD(SCN_TRY_TMP)
 #define SCN_TRY(name, x) SCN_TRY_ASSIGN(auto name, x)
 
 /////////////////////////////////////////////////////////////////
@@ -4354,7 +4410,8 @@ public:
 
     SCN_NODISCARD std::ptrdiff_t chars_available() const
     {
-        return m_putback_buffer.size() + m_current_view.size();
+        return static_cast<std::ptrdiff_t>(m_putback_buffer.size() +
+                                           m_current_view.size());
     }
 
     SCN_NODISCARD std::basic_string_view<CharT> current_view() const
@@ -4371,28 +4428,35 @@ public:
         return m_putback_buffer;
     }
 
+    SCN_GCC_PUSH
+    SCN_GCC_IGNORE("-Warray-bounds")
+
     SCN_NODISCARD std::basic_string_view<CharT> get_segment_starting_at(
         std::ptrdiff_t pos) const
     {
-        if (SCN_UNLIKELY(
-                pos < static_cast<std::ptrdiff_t>(m_putback_buffer.size()))) {
-            return std::basic_string_view<CharT>(m_putback_buffer).substr(pos);
+        SCN_EXPECT(pos >= 0);
+        const auto upos = static_cast<std::size_t>(pos);
+        if (SCN_UNLIKELY(upos < m_putback_buffer.size())) {
+            return std::basic_string_view<CharT>(m_putback_buffer).substr(upos);
         }
-        const auto start = pos - m_putback_buffer.size();
+        const auto start = upos - m_putback_buffer.size();
         SCN_EXPECT(start <= m_current_view.size());
         return m_current_view.substr(start);
     }
 
     SCN_NODISCARD CharT get_character_at(std::ptrdiff_t pos) const
     {
-        if (SCN_UNLIKELY(
-                pos < static_cast<std::ptrdiff_t>(m_putback_buffer.size()))) {
-            return m_putback_buffer[pos];
+        SCN_EXPECT(pos >= 0);
+        const auto upos = static_cast<std::size_t>(pos);
+        if (SCN_UNLIKELY(upos < m_putback_buffer.size())) {
+            return m_putback_buffer[upos];
         }
-        const auto start = pos - m_putback_buffer.size();
+        const auto start = upos - m_putback_buffer.size();
         SCN_EXPECT(start < m_current_view.size());
         return m_current_view[start];
     }
+
+    SCN_GCC_POP
 
     SCN_NODISCARD bool is_contiguous() const
     {
@@ -4853,19 +4917,21 @@ constexpr auto get_file_tag()
 
 template <typename File>
 struct stdio_file_interface_base {
-    stdio_file_interface_base(File* f) : file(f) {}
+    explicit constexpr stdio_file_interface_base(File* f) noexcept : file(f) {}
     ~stdio_file_interface_base() = default;
 
     stdio_file_interface_base(const stdio_file_interface_base&) = delete;
     stdio_file_interface_base& operator=(const stdio_file_interface_base&) =
         delete;
 
-    stdio_file_interface_base(stdio_file_interface_base&& other)
+    constexpr stdio_file_interface_base(
+        stdio_file_interface_base&& other) noexcept
         : file(other.file)
     {
         other.file = nullptr;
     }
-    stdio_file_interface_base& operator=(stdio_file_interface_base&& other)
+    constexpr stdio_file_interface_base& operator=(
+        stdio_file_interface_base&& other) noexcept
     {
         file = other.file;
         other.file = nullptr;
@@ -4881,15 +4947,17 @@ struct stdio_file_interface_impl;
 template <typename File>
 struct stdio_file_interface_impl<File, default_file_tag>
     : stdio_file_interface_base<File> {
-    void lock() {}
-    void unlock() {}
+    using stdio_file_interface_base<File>::stdio_file_interface_base;
 
-    bool has_buffering() const
+    static constexpr void lock() {}
+    static constexpr void unlock() {}
+
+    SCN_NODISCARD static constexpr bool has_buffering()
     {
         return false;
     }
 
-    std::string_view buffer() const
+    SCN_NODISCARD std::string_view buffer() const
     {
         return {};
     }
@@ -4904,7 +4972,7 @@ struct stdio_file_interface_impl<File, default_file_tag>
         SCN_UNREACHABLE;
     }
 
-    std::optional<char> read_one()
+    SCN_NODISCARD std::optional<char> read_one()
     {
         auto res = std::fgetc(this->file);
         if (res == EOF) {
@@ -4916,7 +4984,7 @@ struct stdio_file_interface_impl<File, default_file_tag>
     void prepare_putback() {}
     void finalize_putback() {}
 
-    bool putback(char ch)
+    SCN_NODISCARD bool putback(char ch)
     {
         return std::ungetc(static_cast<unsigned char>(ch), this->file) != EOF;
     }
@@ -4924,6 +4992,8 @@ struct stdio_file_interface_impl<File, default_file_tag>
 
 template <typename File>
 struct posix_stdio_file_interface : stdio_file_interface_base<File> {
+    using stdio_file_interface_base<File>::stdio_file_interface_base;
+
     void lock()
     {
         flockfile(this->file);
@@ -4933,12 +5003,12 @@ struct posix_stdio_file_interface : stdio_file_interface_base<File> {
         funlockfile(this->file);
     }
 
-    static bool has_buffering()
+    SCN_NODISCARD static constexpr bool has_buffering()
     {
         return true;
     }
 
-    std::optional<char> read_one()
+    SCN_NODISCARD std::optional<char> read_one()
     {
         auto res = getc_unlocked(this->file);
         if (res == EOF) {
@@ -4956,7 +5026,7 @@ struct posix_stdio_file_interface : stdio_file_interface_base<File> {
         lock();
     }
 
-    bool putback(char ch)
+    SCN_NODISCARD bool putback(char ch)
     {
         return std::ungetc(static_cast<unsigned char>(ch), this->file) != EOF;
     }
@@ -4965,7 +5035,9 @@ struct posix_stdio_file_interface : stdio_file_interface_base<File> {
 template <typename File>
 struct stdio_file_interface_impl<File, gnu_file_tag>
     : posix_stdio_file_interface<File> {
-    std::string_view buffer() const
+    using posix_stdio_file_interface<File>::posix_stdio_file_interface;
+
+    SCN_NODISCARD std::string_view buffer() const
     {
         return make_string_view_from_pointers(this->file->_IO_read_ptr,
                                               this->file->_IO_read_end);
@@ -4987,7 +5059,9 @@ struct stdio_file_interface_impl<File, gnu_file_tag>
 template <typename File>
 struct stdio_file_interface_impl<File, bsd_file_tag>
     : posix_stdio_file_interface<File> {
-    std::string_view buffer() const
+    using posix_stdio_file_interface<File>::posix_stdio_file_interface;
+
+    SCN_NODISCARD std::string_view buffer() const
     {
         return {reinterpret_cast<const char*>(this->file->_p),
                 static_cast<std::size_t>(this->file->_r)};
@@ -4997,7 +5071,7 @@ struct stdio_file_interface_impl<File, bsd_file_tag>
         SCN_EXPECT(this->file->_p != nullptr);
         SCN_EXPECT(this->file->_r >= n);
         this->file->_p += n;
-        this->file->_r -= n;
+        this->file->_r -= static_cast<int>(n);
     }
     void fill_buffer()
     {
@@ -5011,7 +5085,9 @@ struct stdio_file_interface_impl<File, bsd_file_tag>
 template <typename File>
 struct stdio_file_interface_impl<File, musl_file_tag>
     : posix_stdio_file_interface<File> {
-    std::string_view buffer() const
+    using posix_stdio_file_interface<File>::posix_stdio_file_interface;
+
+    SCN_NODISCARD std::string_view buffer() const
     {
         return make_string_view_from_pointers(
             reinterpret_cast<const char*>(this->file->rpos),
@@ -5034,6 +5110,8 @@ struct stdio_file_interface_impl<File, musl_file_tag>
 template <typename File>
 struct stdio_file_interface_impl<File, win32_file_tag>
     : stdio_file_interface_base<File> {
+    using stdio_file_interface_base<File>::stdio_file_interface_base;
+
     void lock()
     {
         _lock_file(this->file);
@@ -5043,17 +5121,18 @@ struct stdio_file_interface_impl<File, win32_file_tag>
         _unlock_file(this->file);
     }
 
-    static bool has_buffering()
+    SCN_NODISCARD static constexpr bool has_buffering()
     {
         return false;
     }
 
-    std::string_view buffer() const
+    SCN_NODISCARD std::string_view buffer() const
     {
         return {};
     }
     void unsafe_advance_n(std::ptrdiff_t n)
     {
+        SCN_UNUSED(n);
         SCN_EXPECT(false);
         SCN_UNREACHABLE;
     }
@@ -5063,7 +5142,7 @@ struct stdio_file_interface_impl<File, win32_file_tag>
         SCN_UNREACHABLE;
     }
 
-    std::optional<char> read_one()
+    SCN_NODISCARD std::optional<char> read_one()
     {
         auto res = _fgetc_nolock(this->file);
         if (res == EOF) {
@@ -5072,10 +5151,10 @@ struct stdio_file_interface_impl<File, win32_file_tag>
         return static_cast<char>(res);
     }
 
-    void prepare_putback() {}
-    void finalize_putback() {}
+    static void prepare_putback() {}
+    static void finalize_putback() {}
 
-    bool putback(char ch)
+    SCN_NODISCARD bool putback(char ch)
     {
         return _ungetc_nolock(static_cast<unsigned char>(ch), this->file) !=
                EOF;
@@ -5091,7 +5170,7 @@ class basic_scan_file_buffer : public basic_scan_buffer<char> {
 
 public:
     explicit basic_scan_file_buffer(FileInterface file);
-    ~basic_scan_file_buffer();
+    ~basic_scan_file_buffer() override;
 
     bool fill() override;
 
@@ -5102,12 +5181,17 @@ private:
     std::optional<char_type> m_latest{std::nullopt};
 };
 
+SCN_CLANG_PUSH
+SCN_CLANG_IGNORE("-Wweak-vtables")
+
 struct scan_file_buffer : public basic_scan_file_buffer<stdio_file_interface> {
     explicit scan_file_buffer(std::FILE* file)
         : basic_scan_file_buffer(stdio_file_interface{file})
     {
     }
 };
+
+SCN_CLANG_POP
 
 extern template basic_scan_file_buffer<
     stdio_file_interface>::basic_scan_file_buffer(stdio_file_interface);
@@ -5147,8 +5231,8 @@ public:
         if (m_fill_needs_to_propagate) {
             auto ret = m_other->fill();
             this->m_current_view = m_other->current_view();
-            this->m_putback_buffer =
-                m_other->putback_buffer().substr(m_starting_pos);
+            this->m_putback_buffer = m_other->putback_buffer().substr(
+                static_cast<std::size_t>(m_starting_pos));
             return ret;
         }
 
@@ -5175,8 +5259,8 @@ basic_scan_ref_buffer(std::basic_string_view<CharT>)
 template <typename Range>
 auto make_string_scan_buffer(const Range& range)
 {
-    return basic_scan_string_buffer(
-        std::basic_string_view{ranges::data(range), ranges::size(range)});
+    return basic_scan_string_buffer(std::basic_string_view<char_t<Range>>{
+        ranges::data(range), ranges::size(range)});
 }
 
 template <typename Range>
@@ -5291,7 +5375,7 @@ auto impl(const std::basic_string<CharT, Traits, Allocator>& r,
         return custom_char_traits{};
     }
     else {
-        return std::basic_string_view<CharT>{r};
+        return std::basic_string_view<CharT>{r.data(), r.size()};
     }
 }
 
@@ -5318,7 +5402,8 @@ template <typename Range,
 auto impl(const Range& r, priority_tag<2>)
 {
     if constexpr (is_valid_char_type<detail::char_t<Range>>) {
-        return std::basic_string_view{ranges::data(r), ranges::size(r)};
+        return std::basic_string_view<detail::char_t<Range>>{ranges::data(r),
+                                                             ranges::size(r)};
     }
     else {
         return invalid_char_type{};
@@ -5446,11 +5531,13 @@ enum class arg_type : unsigned char {
     int_type,
     long_type,
     llong_type,
+    int128_type,
     uchar_type,
     ushort_type,
     uint_type,
     ulong_type,
     ullong_type,
+    uint128_type,
     bool_type,
     narrow_character_type,
     wide_character_type,
@@ -5459,18 +5546,27 @@ enum class arg_type : unsigned char {
     float_type,
     double_type,
     ldouble_type,
-    narrow_string_view_type,
-    wide_string_view_type,
+    float16_type,
+    float32_type,
+    float64_type,
+    float128_type,
+    bfloat16_type,
+    // Only a single string_view_type,
+    // no separate narrow/wide versions,
+    // because only one of them is valid for each CharT
+    string_view_type,
     narrow_string_type,
     wide_string_type,
-    narrow_regex_matches_type,
-    wide_regex_matches_type,
     custom_type,
     last_type = custom_type
 };
 
 template <typename>
 inline constexpr bool is_type_disabled = SCN_DISABLE_TYPE_CUSTOM;
+
+template <typename CharT>
+inline constexpr bool is_type_disabled<basic_regex_matches<CharT>> =
+    SCN_DISABLE_REGEX;
 
 template <typename T, typename CharT>
 struct arg_type_constant
@@ -5507,15 +5603,34 @@ SCN_TYPE_CONSTANT(float, float_type, SCN_DISABLE_TYPE_FLOAT);
 SCN_TYPE_CONSTANT(double, double_type, SCN_DISABLE_TYPE_DOUBLE);
 SCN_TYPE_CONSTANT(long double, ldouble_type, SCN_DISABLE_TYPE_LONG_DOUBLE);
 SCN_TYPE_CONSTANT(std::string_view,
-                  narrow_string_view_type,
+                  string_view_type,
                   SCN_DISABLE_TYPE_STRING_VIEW);
 SCN_TYPE_CONSTANT(std::wstring_view,
-                  wide_string_view_type,
+                  string_view_type,
                   SCN_DISABLE_TYPE_STRING_VIEW);
 SCN_TYPE_CONSTANT(std::string, narrow_string_type, SCN_DISABLE_TYPE_STRING);
 SCN_TYPE_CONSTANT(std::wstring, wide_string_type, SCN_DISABLE_TYPE_STRING);
-SCN_TYPE_CONSTANT(regex_matches, narrow_regex_matches_type, SCN_DISABLE_REGEX);
-SCN_TYPE_CONSTANT(wregex_matches, wide_regex_matches_type, SCN_DISABLE_REGEX);
+
+#if SCN_HAS_INT128
+SCN_TYPE_CONSTANT(int128, int128_type, SCN_DISABLE_TYPE_INT128);
+SCN_TYPE_CONSTANT(uint128, uint128_type, SCN_DISABLE_TYPE_UINT128);
+#endif
+
+#if SCN_HAS_STD_F16
+SCN_TYPE_CONSTANT(std::float16_t, float16_type, SCN_DISABLE_TYPE_FLOAT16);
+#endif
+#if SCN_HAS_STD_F32
+SCN_TYPE_CONSTANT(std::float32_t, float32_type, SCN_DISABLE_TYPE_FLOAT32);
+#endif
+#if SCN_HAS_STD_F64
+SCN_TYPE_CONSTANT(std::float64_t, float64_type, SCN_DISABLE_TYPE_FLOAT64);
+#endif
+#if SCN_HAS_STD_F128
+SCN_TYPE_CONSTANT(std::float128_t, float128_type, SCN_DISABLE_TYPE_FLOAT128);
+#endif
+#if SCN_HAS_STD_BF16
+SCN_TYPE_CONSTANT(std::bfloat16_t, bfloat16_type, SCN_DISABLE_TYPE_BFLOAT16);
+#endif
 
 #undef SCN_TYPE_CONSTANT
 
@@ -5550,7 +5665,7 @@ struct custom_wrapper {
 };
 
 template <typename T, typename Scanner, typename ParseCtx>
-scan_expected<void> parse_custom_arg(T& arg, Scanner& s, ParseCtx& pctx)
+scan_expected<void> parse_custom_arg(T&, Scanner& s, ParseCtx& pctx)
 {
 #if SCN_HAS_EXCEPTIONS
     auto fmt_it = pctx.begin();
@@ -5558,6 +5673,8 @@ scan_expected<void> parse_custom_arg(T& arg, Scanner& s, ParseCtx& pctx)
         fmt_it = s.parse(pctx);
     }
     catch (const detail::scan_format_string_error_base& ex) {
+        SCN_CLANG_PUSH
+        SCN_CLANG_IGNORE("-Wexit-time-destructors")
         // scan_error takes a const char*.
         // scan_format_string_error (or, actually, std::runtime_error)
         // stores a reference-counted string,
@@ -5572,6 +5689,7 @@ scan_expected<void> parse_custom_arg(T& arg, Scanner& s, ParseCtx& pctx)
         err_msg = ex.what();
         return unexpected_scan_error(scan_error::invalid_format_string,
                                      err_msg.c_str());
+        SCN_CLANG_POP
     }
 #else
     auto fmt_it = s.parse(pctx_ref);
@@ -5588,9 +5706,10 @@ public:
     // trivial default initialization in constexpr
 #if defined(__cpp_constexpr) && __cpp_constexpr >= 201907L && \
     SCN_STD > SCN_STD_20
-    constexpr
-#endif
+    constexpr arg_value() = default;
+#else
     arg_value() = default;
+#endif
 
     template <typename T>
     explicit constexpr arg_value(T& val) : ref_value{std::addressof(val)}
@@ -5677,6 +5796,27 @@ struct arg_mapper {
     SCN_ARG_MAPPER(std::string)
     SCN_ARG_MAPPER(std::wstring)
 
+#if SCN_HAS_INT128
+    SCN_ARG_MAPPER(int128)
+    SCN_ARG_MAPPER(uint128)
+#endif
+
+#if SCN_HAS_STD_F16
+    SCN_ARG_MAPPER(std::float16_t)
+#endif
+#if SCN_HAS_STD_F32
+    SCN_ARG_MAPPER(std::float32_t)
+#endif
+#if SCN_HAS_STD_F64
+    SCN_ARG_MAPPER(std::float64_t)
+#endif
+#if SCN_HAS_STD_F128
+    SCN_ARG_MAPPER(std::float128_t)
+#endif
+#if SCN_HAS_STD_BF16
+    SCN_ARG_MAPPER(std::bfloat16_t)
+#endif
+
 #undef SCN_ARG_MAPPER
 
     static decltype(auto) map(char& val)
@@ -5694,27 +5834,34 @@ struct arg_mapper {
         }
     }
 
-    static decltype(auto) map(basic_regex_matches<char_type>& val)
+#if !SCN_DISABLE_REGEX
+    // regex_matches treated as a custom type, not packed,
+    // to save bits in the packed value,
+    // and since regex reading isn't fast anyway
+    template <typename T, typename Context>
+    static auto map(basic_regex_matches<char_type>& val)
     {
         if constexpr (is_type_disabled<char_type>) {
             return unscannable_disabled{val};
         }
         else {
-            return val;
+            return custom_wrapper<T, Context>{val};
         }
-    }
-
-    static unscannable_char map(std::basic_string_view<other_char_type>&)
-    {
-        return {};
     }
     static unscannable_char map(basic_regex_matches<other_char_type>&)
     {
         return {};
     }
+#endif
+
+    static unscannable_char map(std::basic_string_view<other_char_type>&)
+    {
+        return {};
+    }
 
     template <typename T,
-              std::void_t<decltype(scanner<T, char_type>{})>* = nullptr>
+              std::enable_if_t<std::is_default_constructible_v<
+                  scanner<T, char_type>>>* = nullptr>
     static needs_context_tag map(T&)
     {
         return {};
@@ -5722,7 +5869,8 @@ struct arg_mapper {
 
     template <typename T,
               typename Context,
-              std::void_t<decltype(scanner<T, char_type>{})>* = nullptr>
+              std::enable_if_t<std::is_default_constructible_v<
+                  scanner<T, char_type>>>* = nullptr>
     static custom_wrapper<T, Context> map(T& val, context_tag<Context>)
     {
         return {val};
@@ -5746,12 +5894,20 @@ using is_scannable = std::integral_constant<
         unscannable,
         remove_cvref_t<decltype(arg_mapper<CharT>().map(SCN_DECLVAL(T&)))>>>;
 
-constexpr std::size_t packed_arg_bits = 5;
-static_assert((1 << packed_arg_bits) >= static_cast<int>(arg_type::last_type));
-constexpr std::size_t bits_in_sz = sizeof(std::size_t) * 8;
-constexpr std::size_t max_packed_args = (bits_in_sz - 2) / packed_arg_bits - 1;
-constexpr std::size_t is_unpacked_bit = std::size_t{1} << (bits_in_sz - 1);
-constexpr std::size_t has_custom_types_bit = std::size_t{1} << (bits_in_sz - 2);
+inline constexpr std::size_t packed_arg_bits = 5;
+static_assert((1 << packed_arg_bits) > static_cast<int>(arg_type::last_type),
+              "If this fails, there are more `arg_type` values than values "
+              "that can fit in `packed_arg_bits`. Either something needs to be "
+              "removed from `arg_type` (spilling them to the stack), or "
+              "`packed_arg_bits` must be increased (causing the number of "
+              "arguments that can be packed to decrease)");
+inline constexpr std::size_t bits_in_sz = sizeof(std::size_t) * 8;
+inline constexpr std::size_t max_packed_args =
+    (bits_in_sz - 2) / packed_arg_bits - 1;
+inline constexpr std::size_t is_unpacked_bit = std::size_t{1}
+                                               << (bits_in_sz - 1);
+inline constexpr std::size_t has_custom_types_bit = std::size_t{1}
+                                                    << (bits_in_sz - 2);
 
 template <typename>
 constexpr size_t encode_types_impl()
@@ -5860,7 +6016,7 @@ enum class scan_arg_store_kind {
 };
 
 template <typename Context, typename T>
-constexpr basic_scan_arg<Context> make_arg(T& value)
+constexpr basic_scan_arg<Context> make_arg(T& value) noexcept
 {
     check_scan_arg_types<T>();
 
@@ -5875,7 +6031,7 @@ template <scan_arg_store_kind Kind,
           arg_type,
           typename T,
           typename = std::enable_if_t<Kind == scan_arg_store_kind::builtin>>
-constexpr void* make_arg(T& value)
+constexpr void* make_arg(T& value) noexcept
 {
     return make_value<Context>(value).ref_value;
 }
@@ -5884,7 +6040,7 @@ template <scan_arg_store_kind Kind,
           arg_type,
           typename T,
           typename = std::enable_if_t<Kind == scan_arg_store_kind::packed>>
-constexpr arg_value make_arg(T& value)
+constexpr arg_value make_arg(T& value) noexcept
 {
     return make_value<Context>(value);
 }
@@ -5893,20 +6049,20 @@ template <scan_arg_store_kind Kind,
           arg_type,
           typename T,
           typename = std::enable_if_t<Kind == scan_arg_store_kind::unpacked>>
-constexpr basic_scan_arg<Context> make_arg(T&& value)
+constexpr basic_scan_arg<Context> make_arg(T&& value) noexcept
 {
     return make_arg<Context>(SCN_FWD(value));
 }
 
 template <typename Context>
-constexpr arg_value& get_arg_value(basic_scan_arg<Context>& arg);
+constexpr arg_value& get_arg_value(basic_scan_arg<Context>& arg) noexcept;
 template <typename Context>
-constexpr arg_value get_arg_value(const basic_scan_arg<Context>& arg);
+constexpr arg_value get_arg_value(const basic_scan_arg<Context>& arg) noexcept;
 
 template <typename Context>
-constexpr arg_type& get_arg_type(basic_scan_arg<Context>& arg);
+constexpr arg_type& get_arg_type(basic_scan_arg<Context>& arg) noexcept;
 template <typename Context>
-constexpr arg_type get_arg_type(const basic_scan_arg<Context>& arg);
+constexpr arg_type get_arg_type(const basic_scan_arg<Context>& arg) noexcept;
 
 template <typename Visitor, typename Context>
 constexpr decltype(auto) visit_impl(Visitor&& vis,
@@ -5945,7 +6101,10 @@ public:
         }
 
     private:
-        explicit handle(detail::custom_value_type custom) : m_custom(custom) {}
+        explicit handle(detail::custom_value_type custom) noexcept
+            : m_custom(custom)
+        {
+        }
 
         template <typename Visitor, typename C>
         friend constexpr decltype(auto) detail::visit_impl(
@@ -5982,21 +6141,22 @@ public:
 
 private:
     template <typename ContextType, typename T>
-    friend constexpr basic_scan_arg<ContextType> detail::make_arg(T& value);
+    friend constexpr basic_scan_arg<ContextType> detail::make_arg(
+        T& value) noexcept;
 
     template <typename C>
     friend constexpr detail::arg_type& detail::get_arg_type(
-        basic_scan_arg<C>& arg);
+        basic_scan_arg<C>& arg) noexcept;
     template <typename C>
     friend constexpr detail::arg_type detail::get_arg_type(
-        const basic_scan_arg<C>& arg);
+        const basic_scan_arg<C>& arg) noexcept;
 
     template <typename C>
     friend constexpr detail::arg_value& detail::get_arg_value(
-        basic_scan_arg<C>& arg);
+        basic_scan_arg<C>& arg) noexcept;
     template <typename C>
     friend constexpr detail::arg_value detail::get_arg_value(
-        const basic_scan_arg<C>& arg);
+        const basic_scan_arg<C>& arg) noexcept;
 
     friend class basic_scan_args<Context>;
 
@@ -6006,50 +6166,50 @@ private:
 
 namespace detail {
 template <typename Context>
-constexpr arg_type& get_arg_type(basic_scan_arg<Context>& arg)
+constexpr arg_type& get_arg_type(basic_scan_arg<Context>& arg) noexcept
 {
     return arg.m_type;
 }
 
 template <typename Context>
-constexpr arg_type get_arg_type(const basic_scan_arg<Context>& arg)
+constexpr arg_type get_arg_type(const basic_scan_arg<Context>& arg) noexcept
 {
     return arg.m_type;
 }
 
 template <typename Context>
-constexpr arg_value& get_arg_value(basic_scan_arg<Context>& arg)
+constexpr arg_value& get_arg_value(basic_scan_arg<Context>& arg) noexcept
 {
     return arg.m_value;
 }
 
 template <typename Context>
-constexpr arg_value get_arg_value(const basic_scan_arg<Context>& arg)
+constexpr arg_value get_arg_value(const basic_scan_arg<Context>& arg) noexcept
 {
     return arg.m_value;
 }
 
 template <typename CharT>
-constexpr bool all_types_builtin()
+constexpr bool all_types_builtin() noexcept
 {
     return true;
 }
 template <typename CharT, typename T, typename... Args>
-constexpr bool all_types_builtin()
+constexpr bool all_types_builtin() noexcept
 {
     return mapped_type_constant<T, CharT>::value != arg_type::custom_type &&
            all_types_builtin<CharT, Args...>();
 }
 
 template <typename CharT, typename... Args>
-constexpr scan_arg_store_kind determine_arg_store_kind()
+constexpr scan_arg_store_kind determine_arg_store_kind() noexcept
 {
-    if (sizeof...(Args) > max_packed_args) {
+    if constexpr (sizeof...(Args) > max_packed_args) {
         return scan_arg_store_kind::unpacked;
     }
 #if !(SCN_CLANG && SCN_APPLE)
     // This doesn't work on Apple Clang. I don't know why
-    if (all_types_builtin<CharT, Args...>()) {
+    if constexpr (all_types_builtin<CharT, Args...>()) {
         return scan_arg_store_kind::builtin;
     }
 #endif
@@ -6057,7 +6217,7 @@ constexpr scan_arg_store_kind determine_arg_store_kind()
 }
 
 template <scan_arg_store_kind Kind, typename CharT, typename... Args>
-constexpr size_t compute_arg_store_desc()
+constexpr size_t compute_arg_store_desc() noexcept
 {
     if constexpr (Kind == scan_arg_store_kind::builtin) {
         return encode_types<CharT, Args...>();
@@ -6086,8 +6246,8 @@ public:
                            basic_scan_arg<Context>>>;
     using argptrs_type = std::array<argptr_type, sizeof...(Args)>;
 
-    constexpr explicit scan_arg_store(std::tuple<Args...>& args)
-        : args(std::apply(make_argptrs<Args...>, args))
+    constexpr explicit scan_arg_store(std::tuple<Args...>& a) noexcept
+        : args(std::apply(make_argptrs<Args...>, a))
     {
     }
 
@@ -6095,7 +6255,7 @@ public:
 
 private:
     template <typename... A>
-    static constexpr argptrs_type make_argptrs(A&... args)
+    static constexpr argptrs_type make_argptrs(A&... args) noexcept
     {
         return {detail::make_arg<
             kind, Context,
@@ -6136,7 +6296,7 @@ public:
 
     template <typename... Args>
     SCN_IMPLICIT constexpr basic_scan_args(
-        const detail::scan_arg_store<Context, Args...>& store)
+        const detail::scan_arg_store<Context, Args...>& store) noexcept
         : basic_scan_args(store.desc, store.args.data())
     {
     }
@@ -6235,6 +6395,10 @@ private:
     };
 };
 
+template <typename Context, typename... Args>
+basic_scan_args(const detail::scan_arg_store<Context, Args...>&)
+    -> basic_scan_args<Context>;
+
 /////////////////////////////////////////////////////////////////
 // scan_parse_context
 /////////////////////////////////////////////////////////////////
@@ -6264,9 +6428,10 @@ public:
      */
     [[deprecated(
         "Use the source_tag constructor instead,"
-        "to get more compile-time checking")]] explicit constexpr
-    basic_scan_parse_context(std::basic_string_view<CharT> format,
-                             int next_arg_id = 0)
+        "to get more compile-time checking")]]
+    explicit constexpr basic_scan_parse_context(
+        std::basic_string_view<CharT> format,
+        int next_arg_id = 0)
         : m_format{format}, m_next_arg_id{next_arg_id}
     {
     }
@@ -6841,13 +7006,16 @@ enum class presentation_type {
     float_general,         // 'g', 'G'
     string,                // 's'
     string_set,            // '[...]'
-    regex,                 // '/.../.'
-    regex_escaped,         // '/..\/../.'
-    character,             // 'c'
-    escaped_character,     // '?'
-    pointer,               // 'p'
+#if !SCN_DISABLE_REGEX
+    regex,          // '/.../.'
+    regex_escaped,  // '/..\/../.'
+#endif
+    character,          // 'c'
+    escaped_character,  // '?'
+    pointer,            // 'p'
 };
 
+#if !SCN_DISABLE_REGEX
 enum class regex_flags {
     none = 0,
     multiline = 1,   // /m
@@ -6889,6 +7057,7 @@ constexpr regex_flags& operator^=(regex_flags& a, regex_flags b)
 {
     return a = a ^ b;
 }
+#endif
 
 class fill_type {
 public:
@@ -6965,7 +7134,9 @@ struct format_specs {
     bool charset_has_nonascii{false}, charset_is_inverted{false};
     const void* charset_string_data{nullptr};
     size_t charset_string_size{0};
+#if !SCN_DISABLE_REGEX
     regex_flags regexp_flags{regex_flags::none};
+#endif
     unsigned char arbitrary_base{0};
     align_type align{align_type::none};
     bool localized{false};
@@ -7104,6 +7275,7 @@ public:
         on_type(presentation_type::string_set);
     }
 
+#if !SCN_DISABLE_REGEX
     template <typename CharT>
     constexpr void on_regex_pattern(std::basic_string_view<CharT> pattern)
     {
@@ -7114,14 +7286,15 @@ public:
     {
         m_specs.regexp_flags = flags;
     }
+#endif
 
-    // Intentionally not constexpr
-    void on_error(const char* msg)
+    // Intentionally not constexpr to get a compiler-time error when called
+    /*not-constexpr*/ void on_error(const char* msg)
     {
         SCN_UNLIKELY_ATTR
         m_error = unexpected_scan_error(scan_error::invalid_format_string, msg);
     }
-    void on_error(scan_error err)
+    /*not-constexpr*/ void on_error(scan_error err)
     {
         SCN_UNLIKELY_ATTR
         m_error = unexpected(err);
@@ -7181,7 +7354,7 @@ constexpr const CharT* do_parse_arg_id(const CharT* begin,
         handler.on_error("Invalid argument ID");
         return begin;
     }
-    handler(idx);
+    handler(static_cast<std::size_t>(idx));
 
     return begin;
 }
@@ -7596,6 +7769,8 @@ constexpr const CharT* parse_presentation_regex(const CharT*& begin,
 
     return begin;
 #else
+    SCN_UNUSED(begin);
+    SCN_UNUSED(end);
     handler.on_error("Regular expression support is disabled");
     return {};
 #endif
@@ -7821,6 +7996,7 @@ constexpr arg_type_category get_category_for_arg_type(arg_type type)
         case arg_type::int_type:
         case arg_type::long_type:
         case arg_type::llong_type:
+        case arg_type::int128_type:
             return arg_type_category::integer;
 
         case arg_type::uchar_type:
@@ -7828,6 +8004,7 @@ constexpr arg_type_category get_category_for_arg_type(arg_type type)
         case arg_type::uint_type:
         case arg_type::ulong_type:
         case arg_type::ullong_type:
+        case arg_type::uint128_type:
             return arg_type_category::unsigned_integer;
 
         case arg_type::pointer_type:
@@ -7842,12 +8019,16 @@ constexpr arg_type_category get_category_for_arg_type(arg_type type)
         case arg_type::float_type:
         case arg_type::double_type:
         case arg_type::ldouble_type:
+        case arg_type::float16_type:
+        case arg_type::float32_type:
+        case arg_type::float64_type:
+        case arg_type::float128_type:
+        case arg_type::bfloat16_type:
             return arg_type_category::floating;
 
-        case arg_type::narrow_string_view_type:
         case arg_type::narrow_string_type:
-        case arg_type::wide_string_view_type:
         case arg_type::wide_string_type:
+        case arg_type::string_view_type:
             return arg_type_category::string;
 
         case arg_type::custom_type:
@@ -7956,9 +8137,12 @@ constexpr void check_string_type_specs(const format_specs& specs,
 {
     if (specs.type == presentation_type::none ||
         specs.type == presentation_type::string ||
-        specs.type == presentation_type::string_set ||
-        specs.type == presentation_type::regex ||
-        specs.type == presentation_type::regex_escaped) {
+        specs.type == presentation_type::string_set
+#if !SCN_DISABLE_REGEX
+        || specs.type == presentation_type::regex ||
+        specs.type == presentation_type::regex_escaped
+#endif
+    ) {
         return;
     }
     if (specs.type == presentation_type::character) {
@@ -8001,6 +8185,7 @@ constexpr void check_bool_type_specs(const format_specs& specs,
     }
 }
 
+#if !SCN_DISABLE_REGEX
 template <typename Handler>
 constexpr void check_regex_type_specs(const format_specs& specs,
                                       Handler&& handler)
@@ -8008,7 +8193,7 @@ constexpr void check_regex_type_specs(const format_specs& specs,
     if (SCN_UNLIKELY(specs.type == presentation_type::none ||
                      specs.charset_string_size == 0)) {
         // clang-format off
-        return handler.on_error("Regular expression needs to specified when reading regex_matches");
+        return handler.on_error("Regular expression needs to be specified when reading regex_matches");
         // clang-format on
     }
     if (specs.type == presentation_type::regex ||
@@ -8018,7 +8203,12 @@ constexpr void check_regex_type_specs(const format_specs& specs,
     SCN_UNLIKELY_ATTR
     handler.on_error("Invalid type specifier for regex_matches");
 }
+#endif
+
 }  // namespace detail
+
+SCN_CLANG_PUSH
+SCN_CLANG_IGNORE("-Wdocumentation-unknown-command")
 
 /**
  * \defgroup format-string Format strings
@@ -8409,6 +8599,12 @@ constexpr void check_regex_type_specs(const format_specs& specs,
  * </table>
  */
 
+SCN_CLANG_POP  // -Wdocumentation-unknown-command
+
+    namespace detail
+{
+}
+
 namespace detail {
 /**
  * A runtime format string
@@ -8573,12 +8769,6 @@ public:
         auto type = m_types[id];
         check_arg_can_be_read(type);
 
-        if (type == arg_type::narrow_regex_matches_type ||
-            type == arg_type::wide_regex_matches_type) {
-            // clang-format off
-            return on_error("Regular expression needs to be specified when reading regex_matches");
-            // clang-format on
-        }
         if (type == arg_type::custom_type && id < num_args) {
             // Only call scanner::parse to check for errors,
             // we're discarding the result.
@@ -8604,7 +8794,7 @@ public:
 
     constexpr void check_args_exhausted()
     {
-        if (num_args == 0) {
+        if constexpr (num_args == 0) {
             return;
         }
         for (auto is_set : m_visited_args) {
@@ -8642,26 +8832,16 @@ private:
 
     constexpr void check_arg_can_be_read(arg_type type)
     {
-        if ((type == arg_type::narrow_string_view_type ||
-             type == arg_type::wide_string_view_type) &&
+        if (type == arg_type::string_view_type &&
             !m_parse_context.is_source_contiguous()) {
             // clang-format off
             return on_error("Cannot read a string_view from a non-contiguous source");
             // clang-format on
         }
-        if ((type == arg_type::narrow_string_view_type ||
-             type == arg_type::wide_string_view_type) &&
+        if (type == arg_type::string_view_type &&
             !m_parse_context.is_source_borrowed()) {
             // clang-format off
             return on_error("Cannot read a string_view from a non-borrowed source");
-            // clang-format on
-        }
-
-        if ((type == arg_type::narrow_regex_matches_type ||
-             type == arg_type::wide_regex_matches_type) &&
-            !m_parse_context.is_source_contiguous()) {
-            // clang-format off
-            return on_error("Cannot read a regex_matches from a non-contiguous source");
             // clang-format on
         }
     }
@@ -8858,7 +9038,7 @@ public:
     }
 
 protected:
-    scan_context_base(Args args, locale_ref loc)
+    scan_context_base(Args args, locale_ref loc) noexcept
         : m_args(SCN_MOVE(args)), m_locale(SCN_MOVE(loc))
     {
     }
@@ -8943,7 +9123,7 @@ public:
 
     constexpr basic_scan_context(iterator curr,
                                  args_type a,
-                                 detail::locale_ref loc = {})
+                                 detail::locale_ref loc = {}) noexcept
         : base(SCN_MOVE(a), loc), m_current(curr)
     {
     }
@@ -8999,6 +9179,24 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
 template <typename T, typename Context>
 scan_expected<typename Context::iterator>
 scanner_scan_for_builtin_type(T& val, Context& ctx, const format_specs& specs);
+
+template <typename T, typename CharT>
+struct builtin_scanner {
+    template <typename ParseCtx>
+    constexpr auto parse(ParseCtx& pctx) -> typename ParseCtx::iterator
+    {
+        return detail::scanner_parse_for_builtin_type<T>(pctx, m_specs);
+    }
+
+    template <typename Context>
+    scan_expected<typename Context::iterator> scan(T& val, Context& ctx) const
+    {
+        return detail::scanner_scan_for_builtin_type(val, ctx, m_specs);
+    }
+
+protected:
+    format_specs m_specs;
+};
 }  // namespace detail
 
 /////////////////////////////////////////////////////////////////
@@ -9015,22 +9213,8 @@ struct scanner<T,
                CharT,
                std::enable_if_t<detail::arg_type_constant<T, CharT>::value !=
                                     detail::arg_type::custom_type &&
-                                !detail::is_type_disabled<T>>> {
-    template <typename ParseCtx>
-    constexpr auto parse(ParseCtx& pctx) -> typename ParseCtx::iterator
-    {
-        return detail::scanner_parse_for_builtin_type<T>(pctx, m_specs);
-    }
-
-    template <typename Context>
-    scan_expected<typename Context::iterator> scan(T& val, Context& ctx) const
-    {
-        return detail::scanner_scan_for_builtin_type(val, ctx, m_specs);
-    }
-
-private:
-    detail::format_specs m_specs;
-};
+                                !detail::is_type_disabled<T>>>
+    : detail::builtin_scanner<T, CharT> {};
 
 namespace detail {
 template <typename T, typename ParseCtx>
@@ -9042,12 +9226,9 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
 
     auto begin = pctx.begin();
     const auto end = pctx.end();
-    if (begin == end) {
-        return begin;
-    }
 
     using handler_type = specs_setter;
-    const auto type = arg_type_constant<T, char_type>::value;
+    constexpr auto type = arg_type_constant<T, char_type>::value;
     auto checker =
         detail::specs_checker<handler_type>(handler_type(specs), type);
 
@@ -9070,11 +9251,13 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
         case arg_type::int_type:
         case arg_type::long_type:
         case arg_type::llong_type:
+        case arg_type::int128_type:
         case arg_type::uchar_type:
         case arg_type::ushort_type:
         case arg_type::uint_type:
         case arg_type::ulong_type:
         case arg_type::ullong_type:
+        case arg_type::uint128_type:
             check_int_type_specs(specs, checker);
             break;
 
@@ -9087,23 +9270,22 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
         case arg_type::float_type:
         case arg_type::double_type:
         case arg_type::ldouble_type:
+        case arg_type::float16_type:
+        case arg_type::float32_type:
+        case arg_type::float64_type:
+        case arg_type::float128_type:
+        case arg_type::bfloat16_type:
             check_float_type_specs(specs, checker);
             break;
 
         case arg_type::narrow_string_type:
-        case arg_type::narrow_string_view_type:
         case arg_type::wide_string_type:
-        case arg_type::wide_string_view_type:
+        case arg_type::string_view_type:
             check_string_type_specs(specs, checker);
             break;
 
         case arg_type::pointer_type:
             check_pointer_type_specs(specs, checker);
-            break;
-
-        case arg_type::narrow_regex_matches_type:
-        case arg_type::wide_regex_matches_type:
-            check_regex_type_specs(specs, checker);
             break;
 
             SCN_CLANG_PUSH
@@ -9116,6 +9298,7 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
             SCN_CLANG_POP
     }
 
+#if !SCN_DISABLE_REGEX
     if (specs.type == presentation_type::regex ||
         specs.type == presentation_type::regex_escaped) {
         if (!pctx.is_source_contiguous()) {
@@ -9129,6 +9312,7 @@ constexpr typename ParseCtx::iterator scanner_parse_for_builtin_type(
             checker.on_error("Cannot read a regex from a non-borrowed source");
         }
     }
+#endif
 
     return it;
 }
@@ -9183,6 +9367,58 @@ scan_expected<ranges::iterator_t<Range>> internal_skip_classic_whitespace(
     extern template scan_expected<Context::iterator>         \
     scanner_scan_for_builtin_type(T&, Context&, const format_specs&);
 
+#if SCN_HAS_INT128
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_INT128(Context)   \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(int128, Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(uint128, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_INT128(Context) /* int128 */
+#endif
+
+#if SCN_HAS_STD_F16
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F16(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(std::float16_t, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F16(Context) /* std::float16_t */
+#endif
+
+#if SCN_HAS_STD_F32
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F32(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(std::float32_t, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F32(Context) /* std::float32_t */
+#endif
+
+#if SCN_HAS_STD_F64
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F64(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(std::float64_t, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F64(Context) /* std::float64_t */
+#endif
+
+#if SCN_HAS_STD_F128
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F128(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(std::float128_t, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F128(Context)  /* std::float128_t \
+                                                            */
+#endif
+
+#if SCN_HAS_STD_BF16
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_BF16(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(std::bfloat16_t, Context)
+#else
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_BF16(Context)  /* std::bfloat16_t \
+                                                            */
+#endif
+
+#define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_EXT_FLOAT(Context) \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F16(Context)           \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F32(Context)           \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F64(Context)           \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_F128(Context)          \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_BF16(Context)
+
 #define SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_CTX(Context)                   \
     SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(char, Context)                \
     SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(wchar_t, Context)             \
@@ -9206,6 +9442,8 @@ scan_expected<ranges::iterator_t<Range>> internal_skip_classic_whitespace(
         std::basic_string_view<Context::char_type>, Context)               \
     SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(regex_matches, Context)       \
     SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_TYPE(wregex_matches, Context)      \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_INT128(Context)                    \
+    SCN_DECLARE_EXTERN_SCANNER_SCAN_FOR_EXT_FLOAT(Context)                 \
     extern template scan_expected<ranges::iterator_t<Context::range_type>> \
     internal_skip_classic_whitespace(Context::range_type, bool);
 
@@ -9222,13 +9460,15 @@ namespace detail {
 template <typename Visitor, typename Ctx>
 constexpr decltype(auto) visit_impl(Visitor&& vis, basic_scan_arg<Ctx>& arg)
 {
-#define SCN_VISIT(Type)                                                \
-    if constexpr (!detail::is_type_disabled<Type>) {                   \
-        return vis(*static_cast<Type*>(get_arg_value(arg).ref_value)); \
-    }                                                                  \
-    else {                                                             \
-        return vis(monostate_val);                                     \
-    }
+#define SCN_VISIT(Type)                                                    \
+    do {                                                                   \
+        if constexpr (!detail::is_type_disabled<Type>) {                   \
+            return vis(*static_cast<Type*>(get_arg_value(arg).ref_value)); \
+        }                                                                  \
+        else {                                                             \
+            return vis(monostate_val);                                     \
+        }                                                                  \
+    } while (false)
 
     monostate monostate_val{};
 
@@ -9243,6 +9483,12 @@ constexpr decltype(auto) visit_impl(Visitor&& vis, basic_scan_arg<Ctx>& arg)
             SCN_VISIT(long);
         case detail::arg_type::llong_type:
             SCN_VISIT(long long);
+        case detail::arg_type::int128_type:
+#if SCN_HAS_INT128
+            SCN_VISIT(int128);
+#else
+            return vis(monostate_val);
+#endif
         case detail::arg_type::uchar_type:
             SCN_VISIT(unsigned char);
         case detail::arg_type::ushort_type:
@@ -9253,6 +9499,12 @@ constexpr decltype(auto) visit_impl(Visitor&& vis, basic_scan_arg<Ctx>& arg)
             SCN_VISIT(unsigned long);
         case detail::arg_type::ullong_type:
             SCN_VISIT(unsigned long long);
+        case detail::arg_type::uint128_type:
+#if SCN_HAS_INT128
+            SCN_VISIT(uint128);
+#else
+            return vis(monostate_val);
+#endif
         case detail::arg_type::pointer_type:
             SCN_VISIT(void*);
         case detail::arg_type::bool_type:
@@ -9269,18 +9521,48 @@ constexpr decltype(auto) visit_impl(Visitor&& vis, basic_scan_arg<Ctx>& arg)
             SCN_VISIT(double);
         case detail::arg_type::ldouble_type:
             SCN_VISIT(long double);
-        case detail::arg_type::narrow_string_view_type:
-            SCN_VISIT(std::string_view);
+        case detail::arg_type::float16_type:
+#if SCN_HAS_STD_F16
+            SCN_VISIT(std::float16_t);
+#else
+            return vis(monostate_val);
+#endif
+        case detail::arg_type::float32_type:
+#if SCN_HAS_STD_F32
+            SCN_VISIT(std::float32_t);
+#else
+            return vis(monostate_val);
+#endif
+        case detail::arg_type::float64_type:
+#if SCN_HAS_STD_F64
+            SCN_VISIT(std::float64_t);
+#else
+            return vis(monostate_val);
+#endif
+        case detail::arg_type::float128_type:
+#if SCN_HAS_STD_F64
+            SCN_VISIT(std::float128_t);
+#else
+            return vis(monostate_val);
+#endif
+        case detail::arg_type::bfloat16_type:
+#if SCN_HAS_STD_BF16
+            SCN_VISIT(std::bfloat16_t);
+#else
+            return vis(monostate_val);
+#endif
         case detail::arg_type::narrow_string_type:
             SCN_VISIT(std::string);
-        case detail::arg_type::wide_string_view_type:
-            SCN_VISIT(std::wstring_view);
         case detail::arg_type::wide_string_type:
             SCN_VISIT(std::wstring);
-        case detail::arg_type::narrow_regex_matches_type:
-            SCN_VISIT(regex_matches);
-        case detail::arg_type::wide_regex_matches_type:
-            SCN_VISIT(wregex_matches);
+        case detail::arg_type::string_view_type: {
+            if constexpr (std::is_same_v<typename Ctx::char_type, char>) {
+                SCN_VISIT(std::string_view);
+            }
+            else {
+                SCN_VISIT(std::wstring_view);
+            }
+        }
 
         case detail::arg_type::custom_type:
 #if !SCN_DISABLE_TYPE_CUSTOM
@@ -9610,6 +9892,24 @@ extern template auto scan_int_exhaustive_valid_impl(std::string_view)
     -> unsigned long long;
 #endif
 
+#if SCN_HAS_INT128
+
+#if !SCN_DISABLE_TYPE_INT128
+extern template auto scan_int_impl(std::string_view source,
+                                   int128& value,
+                                   int base)
+    -> scan_expected<std::string_view::iterator>;
+#endif
+
+#if !SCN_DISABLE_TYPE_UINT128
+extern template auto scan_int_impl(std::string_view source,
+                                   uint128& value,
+                                   int base)
+    -> scan_expected<std::string_view::iterator>;
+#endif
+
+#endif  // SCN_HAS_INT128
+
 }  // namespace detail
 
 SCN_GCC_POP  // -Wnoexcept
@@ -9880,10 +10180,14 @@ SCN_NODISCARD auto prompt(const char* msg,
 namespace detail {
 template <typename T>
 inline constexpr bool is_scan_int_type =
-    std::is_integral_v<T> && !std::is_same_v<T, char> &&
-    !std::is_same_v<T, wchar_t> && !std::is_same_v<T, char32_t> &&
-    !std::is_same_v<T, bool>;
-}
+    (std::is_integral_v<T> && !std::is_same_v<T, char> &&
+     !std::is_same_v<T, wchar_t> && !std::is_same_v<T, char32_t> &&
+     !std::is_same_v<T, bool>)
+#if SCN_HAS_INT128
+    || std::is_same_v<T, int128> || std::is_same_v<T, uint128>
+#endif
+    ;
+}  // namespace detail
 
 /**
  * Fast integer reading.

@@ -6,6 +6,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/arch.yml'
       - 'cmake/**'
@@ -18,6 +19,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/arch.yml'
       - 'cmake/**'
@@ -39,29 +41,41 @@ env:
   CCACHE_NOHASHDIR: true
   CCACHE_SLOPPINESS: "pch_defines,time_macros"
   CCACHE_UNIFY: true
-  CMAKE_C_COMPILER_LAUNCHER: ccache
-  CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
 jobs:
+  # Run on non-amd64 architectures, through QEMU
+
   other-archs:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        arch: [ armv7, aarch64, riscv64, s390x, ppc64le ]
-        distro: [ ubuntu22.04 ]
+        arch: [ armv6, armv7, aarch64, s390x, ppc64le ]
+        distro: [ bookworm ]
 
         include:
-          - arch: armv6
-            distro: bullseye
+          - arch: riscv64
+            distro: ubuntu22.04
 
-        #exclude:
-          # FIXME: these runs take too long, and time out
-          #- arch: aarch64
-          #- arch: ppc64le
+          - base_image_tag: armv5
+            arch: none
+            distro: none
+            base_image: --platform=linux/arm/v5 arm32v5/debian:bookworm-backports
+
+          - base_image_tag: i386
+            arch: none
+            distro: none
+            base_image: --platform=linux/i386 i386/debian:bookworm-backports
+
+          - base_image_tag: mips64le
+            arch: none
+            distro: none
+            base_image: --platform=linux/mips64le mips64le/debian:bookworm
 
     env:
       CCACHE_DIR: "/tmp/ccache"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
     steps:
       - name: Checkout
@@ -71,18 +85,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ github.sha }}
+          key: ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ matrix.base_image_tag }}-${{ github.sha }}
           restore-keys: |
-            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ github.ref }}
-            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ github.base_ref }}
-            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}
+            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ matrix.base_image_tag }}-${{ github.ref }}
+            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ matrix.base_image_tag }}-${{ github.base_ref }}
+            ccache-arch-${{ matrix.distro }}-${{ matrix.arch }}-${{ matrix.base_image_tag }}
 
-      - uses: uraimo/run-on-arch-action@v2
+      - uses: uraimo/run-on-arch-action@v3
         name: Build and test
         id: build
         with:
           arch: ${{ matrix.arch }}
           distro: ${{ matrix.distro }}
+          base_image: ${{ matrix.base_image }}
 
           githubToken: ${{ github.token }}
 
@@ -92,7 +107,9 @@ jobs:
           dockerRunArgs: |
             --volume "${{ env.CCACHE_DIR }}:${{ env.CCACHE_DIR }}"
 
+          # Setting GITHUB_WORKFLOW as a hack around https://github.com/uraimo/run-on-arch-action/issues/55
           env: |
+            GITHUB_WORKFLOW: ${{ github.workflow }}-${{ github.job }}-${{ matrix.base_image_tag }}
             CCACHE_ABSSTDERR: ${{ env.CCACHE_ABSSTDERR }}
             CCACHE_COMPRESS: ${{ env.CCACHE_COMPRESS }}
             CCACHE_COMPRESSLEVEL: ${{ env.CCACHE_COMPRESSLEVEL }}
@@ -113,12 +130,17 @@ jobs:
             ccache --zero-stats
             ccache --show-stats
             ccache --show-config
-            
+
+            echo | g++ -dM -E -x c++ - | sort
+
             cmake -G Ninja -DSCN_DISABLE_TOP_PROJECT=ON -DSCN_PEDANTIC=ON -DSCN_WERROR=OFF -DSCN_TESTS=ON -B build
-            cmake --build build -- -k 0
+            cmake --build build --verbose -- -k 0
             ccache --show-stats
-            
+
             ctest --output-on-failure --test-dir build
+
+  # Cross-compile with Visual Studio, targeting arm64
+  # Doesn't run tests
 
   vs-arm64-crosscompile:
     runs-on: windows-2022
@@ -131,6 +153,8 @@ jobs:
 
     env:
       CCACHE_DIR: D:/ccache
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
     steps:
       - name: Checkout
@@ -161,4 +185,90 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . --parallel
+        run: cmake --build . --parallel --verbose
+
+  # Build and run test on native arm64 Ubuntu
+
+  native-arm-linux:
+    runs-on: ubuntu-${{ matrix.os }}-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: 22.04
+            cxx: g++-9
+          - os: 22.04
+            cxx: clang++-13
+          - os: 24.04
+            cxx: g++-12
+          - os: 24.04
+            cxx: clang++-16
+
+    env:
+      CXX: ${{ matrix.cxx }}
+      OS: ${{ matrix.os }}
+
+    steps:
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Create Build Environment
+        run: |
+          mkdir ${{ runner.workspace }}/build
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run CMake
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          cmake -G Ninja -DSCN_CI=ON $GITHUB_WORKSPACE
+
+      - name: Build
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          cmake --build . --verbose -- -k 0
+
+      - name: Test
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          ctest --output-on-failure
+
+  # Build and run test on native arm64 Windows
+
+  # TODO: Enable once runners are more readily available
+  #native-arm-windows:
+  #  runs-on: ubuntu-${{ matrix.os }}-arm
+  #  strategy:
+  #    fail-fast: false
+  #    matrix:
+  #      include:
+  #        - os: 11
+  #          type: Debug
+
+  #  env:
+  #    OS: ${{ matrix.os }}
+
+  #  steps:
+  #    - name: Create build environment
+  #      run: |
+  #        cmake -E make_directory ${{ runner.workspace }}/build
+
+  #    - name: Checkout
+  #      uses: actions/checkout@v4
+
+  #    - name: Run CMake
+  #      working-directory: ${{ runner.workspace }}/build
+  #      shell: bash
+  #      run: |
+  #        cmake -DSCN_CI=ON $GITHUB_WORKSPACE
+
+  #    - name: Build
+  #      working-directory: ${{ runner.workspace }}/build
+  #      run: |
+  #        cmake --build . --config ${{ matrix.type }} --parallel
+
+  #    - name: Test
+  #      working-directory: ${{ runner.workspace }}/build
+  #      run: |
+  #        ctest -C ${{ matrix.type }} --output-on-failure

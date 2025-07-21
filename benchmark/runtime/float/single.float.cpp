@@ -25,8 +25,6 @@
 #include <charconv>
 #endif
 
-#include <fast_float/fast_float.h>
-
 template <typename Float>
 static void scan_float_single_scn(benchmark::State& state)
 {
@@ -187,4 +185,3 @@ static void scan_float_single_fastfloat(benchmark::State& state)
 }
 BENCHMARK_TEMPLATE(scan_float_single_fastfloat, float);
 BENCHMARK_TEMPLATE(scan_float_single_fastfloat, double);
-BENCHMARK_TEMPLATE(scan_float_single_fastfloat, long double);

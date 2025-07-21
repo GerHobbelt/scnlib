@@ -6,6 +6,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/linux.yml'
       - 'benchmark/**'
@@ -20,6 +21,7 @@ on:
       - master
       - v*/dev
       - ci/*
+      - dev/*
     paths:
       - '.github/workflows/linux.yml'
       - 'benchmark/**'
@@ -51,34 +53,20 @@ env:
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
+  # recent gcc versions and pre-installed clang versions on native ubuntu 22.04 and 24.04
   ubuntu:
     runs-on: ubuntu-${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ 22.04, 20.04 ]
+        os: [ 22.04 ]
         cxx:
-          - g++-13
           - g++-12
           - g++-11
           - g++-10
           - g++-9
-          - g++-8
-          - g++-7
-        #  - clang++-18
-        #  - clang++-17
-        #  - clang++-16
-        #  - clang++-15
-        #  - clang++-14
-        #  - clang++-13
-        #  - clang++-12
-        #  - clang++-11
-        #  - clang++-10
-        #  - clang++-9
-        #  - clang++-8
-        #  - clang++-7
-        #  - clang++-6.0
         std: [ 17 ]
+
         include:
           # Explicitly pick out pre-installed clang + os pairs -- apt.llvm.org likes to fail on us
           - os: 24.04
@@ -101,22 +89,31 @@ jobs:
             cxx: clang++-13
             std: 17
 
-          - os: 20.04
-            cxx: clang++-12
+          # g++ 12 and 13 (both preinstalled) on 24.04
+          - os: 24.04
+            cxx: g++-13
             std: 17
-          - os: 20.04
-            cxx: clang++-11
-            std: 17
-          - os: 20.04
-            cxx: clang++-10
+          - os: 24.04
+            cxx: g++-12
             std: 17
 
-          # clang 8 from apt
-          - os: 20.04
-            cxx: clang++-8
-            std: 17
+          # newest pre-installed gcc on 22.04 with C++20 and C++23 (C++17 created by the matrix)
+          - os: 22.04
+            cxx: g++-12
+            std: 20
+          - os: 22.04
+            cxx: g++-12
+            std: 23
 
-          # newest pre-installed gcc on 24.04, including C++20 and C++23
+          # newest pre-installed clang on 22.04 with C++20 and C++23 (C++17 created by the matrix)
+          - os: 22.04
+            cxx: clang++-13
+            std: 20
+          - os: 22.04
+            cxx: clang++-13
+            std: 23
+
+          # newest pre-installed gcc on 24.04, with C++17, C++20, and C++23
           - os: 24.04
             cxx: g++-14
             std: 17
@@ -127,26 +124,13 @@ jobs:
             cxx: g++-14
             std: 23
 
-          # newest pre-installed clang on 24.04, including C++20 and C++23
-          - os: 24.04
-            cxx: clang++-18
-            std: 17
+          # newest pre-installed clang on 24.04, with C++20 and C++23 (C++17 already provided above)
           - os: 24.04
             cxx: clang++-18
             std: 20
           - os: 24.04
             cxx: clang++-18
             std: 23
-
-        exclude:
-          # gcc 8, clang 12, and before aren't available on 22.04
-          - cxx: g++-8
-            os: 22.04
-          - cxx: g++-7
-            os: 22.04
-          # gcc 12 isn't available on 20.04 (11 and 13 are in ubuntu-toolchain-r)
-          - cxx: g++-12
-            os: 20.04
 
     env:
       CXX: ${{ matrix.cxx }}
@@ -160,7 +144,6 @@ jobs:
 
       - name: Create Build Environment
         run: |
-          mkdir ${{ runner.workspace }}/deps
           mkdir ${{ runner.workspace }}/build
           
           sudo locale-gen en_US.UTF-8
@@ -169,37 +152,13 @@ jobs:
           sudo locale -a
 
       - name: Install dependencies
-        working-directory: ${{ runner.workspace }}/deps
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get --allow-unauthenticated -yq update
           
           ${APT_INSTALL} ccache
-          
-          if [[ "${CXX}" == "g++-13" ]]; then
-            ${APT_INSTALL} g++-13
-          fi
-          if [[ "${CXX}" == "g++-12" ]]; then
-            ${APT_INSTALL} g++-12
-          fi
-          if [[ "${CXX}" == "g++-11" ]]; then
-            ${APT_INSTALL} g++-11
-          fi
-          if [[ "${CXX}" == "g++-10" ]]; then
-            ${APT_INSTALL} g++-10
-          fi
+
           if [[ "${CXX}" == "g++-9" ]]; then
             ${APT_INSTALL} g++-9
-          fi
-          if [[ "${CXX}" == "g++-8" ]]; then
-            ${APT_INSTALL} g++-8
-          fi
-          if [[ "${CXX}" == "g++-7" ]]; then
-            ${APT_INSTALL} g++-7
-          fi
-          
-          if [[ "${CXX}" == "clang++-8" ]]; then
-            ${APT_INSTALL} clang-8
           fi
 
       - name: Checkout
@@ -231,7 +190,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . -- -k 0
+        run: cmake --build . --verbose -- -k 0
 
       - name: Show ccache stats
         run: |
@@ -241,22 +200,123 @@ jobs:
         working-directory: ${{ runner.workspace }}/build
         run: ctest --output-on-failure
 
+  # Get older gcc and clang versions through Docker
+  docker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cxx: g++-8
+            std: 17
+            image: gcc:7
+          - cxx: g++-7
+            std: 17
+            image: gcc:7
+          # gcc 6 and older fail in apt-get update with 404s,
+          # and are seemingly incompatible with actions/checkout
+
+          - cxx: clang++-12
+            std: 17
+            image: silkeh/clang:12
+          - cxx: clang++-11
+            std: 17
+            image: silkeh/clang:11
+          - cxx: clang++-10
+            std: 17
+            image: silkeh/clang:10
+          - cxx: clang++-9
+            std: 17
+            image: silkeh/clang:9
+          - cxx: clang++-8
+            std: 17
+            image: silkeh/clang:8
+          # clang 7 couldn't compile the tests (TODO?)
+
+    container:
+      image: ${{ matrix.image }}
+      env:
+        CCACHE_ABSSTDERR: ${{ env.CCACHE_ABSSTDERR }}
+        CCACHE_COMPRESS: ${{ env.CCACHE_COMPRESS }}
+        CCACHE_COMPRESSLEVEL: ${{ env.CCACHE_COMPRESSLEVEL }}
+        CCACHE_DIR: ${{ env.CCACHE_DIR }}
+        CCACHE_MAXSIZE: ${{ env.CCACHE_MAXSIZE }}
+        CCACHE_NOHASHDIR: ${{ env.CCACHE_NOHASHDIR }}
+        CCACHE_SLOPPINESS: ${{ env.CCACHE_SLOPPINESS }}
+        CCACHE_UNIFY: ${{ env.CCACHE_UNIFY }}
+        DEBIAN_FRONTEND: ${{ env.DEBIAN_FRONTEND }}
+        # gcc images only have "g++", no "g++-N"
+        CXX: ${{ startsWith(matrix.cxx, 'g++') && 'g++' || matrix.cxx }}
+        CMAKE_C_COMPILER_LAUNCHER: ccache
+        CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get --allow-unauthenticated -yq update
+          apt-get install \
+            -yq --no-install-suggests --no-install-recommends \
+            --allow-unauthenticated --allow-downgrades --allow-change-held-packages \
+            ccache ninja-build curl git
+
+          mkdir -p $GITHUB_WORKSPACE/deps
+          cd $GITHUB_WORKSPACE/deps
+          curl -s -L https://github.com/Kitware/CMake/releases/download/v4.0.2/cmake-4.0.2-linux-x86_64.tar.gz \
+            | tar xvz -C .
+          ln -s $GITHUB_WORKSPACE/deps/cmake-4.0.2-linux-x86_64/bin $GITHUB_WORKSPACE/bin
+
+          $GITHUB_WORKSPACE/bin/cmake --version
+
+      - name: Load ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.workflow }}-docker-${{ matrix.cxx }}-std${{ matrix.std }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.workflow }}-docker-${{ matrix.cxx }}-std${{ matrix.std }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-docker-${{ matrix.cxx }}-std${{ matrix.std }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-docker-${{ matrix.cxx }}-std${{ matrix.std }}
+
+      - name: Setup ccache
+        run: |
+          ccache --version
+          ccache --zero-stats
+          ccache --show-stats
+          ccache --show-config || true
+
+      - name: Run CMake
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/build
+          cd $GITHUB_WORKSPACE/build
+          $GITHUB_WORKSPACE/bin/cmake -G Ninja -DSCN_CI=ON \
+                -DCMAKE_CXX_STANDARD=${{ matrix.std }} \
+                $GITHUB_WORKSPACE
+
+      - name: Build
+        run: |
+          cd $GITHUB_WORKSPACE/build
+          $GITHUB_WORKSPACE/bin/cmake --build . --verbose -- -k 0
+
+      - name: Show ccache stats
+        run: |
+          ccache --show-stats
+
+      - name: Test
+        run: |
+          cd $GITHUB_WORKSPACE/build
+          $GITHUB_WORKSPACE/bin/ctest --output-on-failure
+
   libcxx:
     runs-on: ubuntu-${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # 24.04 doesn't have libc++ (yet?)
-        os: [ 22.04, 20.04 ]
-        std: [ 17 ]
-        include:
-          - os: 22.04
-            std: 20
-          - os: 22.04
-            std: 23
-        exclude:
-          # Fails to configure (CMake) google benchmark
-          - os: 20.04
+        os: [ 22.04 ]
+        std: [ 17, 20, 23 ]
 
     env:
       CC: clang
@@ -274,10 +334,10 @@ jobs:
 
       - name: Create Build Environment
         run: |
+          mkdir -p ${{ runner.workspace }}/build
+
           ${APT_INSTALL} ccache
-          
-          mkdir ${{ runner.workspace }}/build
-          
+
           sudo locale-gen en_US.UTF-8
           sudo locale-gen fi_FI.UTF-8
           sudo update-locale
@@ -310,7 +370,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . -- -k 0
+        run: cmake --build . --verbose -- -k 0
 
       - name: Show ccache stats
         run: |
@@ -322,6 +382,10 @@ jobs:
 
   alpine:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [ 3.14, 3.21 ]
 
     steps:
       - name: Checkout
@@ -331,11 +395,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ github.workflow }}-alpine-${{ github.sha }}
+          key: ccache-${{ github.workflow }}-alpine${{ matrix.version }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ github.workflow }}-alpine-${{ github.ref }}
-            ccache-${{ github.workflow }}-alpine-${{ github.base_ref }}
-            ccache-${{ github.workflow }}-alpine
+            ccache-${{ github.workflow }}-alpine${{ matrix.version }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-alpine${{ matrix.version }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-alpine${{ matrix.version }}
 
       - name: Start docker
         run: |
@@ -351,7 +415,7 @@ jobs:
             -e CCACHE_UNIFY=${{ env.CCACHE_UNIFY }} \
             -e CMAKE_C_COMPILER_LAUNCHER=ccache \
             -e CMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            alpine:3.18
+            alpine:${{ matrix.version }}
           echo 'docker exec alpine "$@";' > alpine-run.sh
           chmod +x alpine-run.sh
 
@@ -373,12 +437,94 @@ jobs:
 
       - name: Build
         run: |
-          ./alpine-run.sh cmake --build build -- -k 0
+          ./alpine-run.sh cmake --build build --verbose -- -k 0
           ./alpine-run.sh ccache --show-stats
 
       - name: Test
         run: |
           ./alpine-run.sh bash -c "cd build && ctest --output-on-failure"
+
+  cmake:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cmake:
+          - latest
+
+        generator:
+          - Ninja
+          - "Ninja Multi-Config"
+          - "Unix Makefiles"
+
+        include:
+          # 3.16 the stated version in cmake_minimum_required()
+          - cmake: "^3.16.0"
+            generator: Ninja
+
+    env:
+      CXX: g++-13
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      IS_MULTI_CONFIG: ${{ endsWith(matrix.generator, 'Multi-Config') }}
+
+    steps:
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: ${{ matrix.cmake }}
+
+      - name: Install dependencies
+        run: |
+          mkdir ${{ runner.workspace }}/build
+          sudo apt-get --allow-unauthenticated -yq update
+          ${APT_INSTALL} ccache
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-cmake-${{ matrix.cmake }}-${{ matrix.generator }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-cmake-${{ matrix.cmake }}-${{ matrix.generator }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-cmake-${{ matrix.cmake }}-${{ matrix.generator }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-cmake-${{ matrix.cmake }}-${{ matrix.generator }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-${{ github.sha }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu24.04-g++-13-std17
+
+      - name: Setup ccache
+        run: |
+          ccache --version
+          ccache --zero-stats
+          ccache --show-stats
+          ccache --show-config
+
+      - name: Run CMake, Build, Test (single-config)
+        if: env.IS_MULTI_CONFIG != 'true'
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          cmake -G "${{ matrix.generator }}" -DSCN_CI=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_STANDARD=17 \
+            $GITHUB_WORKSPACE
+          cmake --build . --parallel --verbose
+          ctest --output-on-failure
+
+      - name: Run CMake, Build, Test (multi-config)
+        if: env.IS_MULTI_CONFIG == 'true'
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          cmake -G "${{ matrix.generator }}" -DSCN_CI=ON -DCMAKE_CXX_STANDARD=17 \
+            $GITHUB_WORKSPACE
+          cmake --build . --config Debug --parallel --verbose
+          ctest -C Debug --output-on-failure
+
+      - name: Show ccache stats
+        run: |
+          ccache --show-stats
 
   asan-and-ubsan:
     runs-on: ubuntu-24.04
@@ -420,6 +566,9 @@ jobs:
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}-sanitize-${{ github.ref }}
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}-sanitize-${{ github.base_ref }}
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}-sanitize
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ matrix.std }}
 
       - name: Setup ccache
         run: |
@@ -440,7 +589,7 @@ jobs:
       - name: Build
         working-directory: ${{ runner.workspace }}/build
         run: |
-          cmake --build . -- -k 0
+          cmake --build . --verbose -- -k 0
 
       - name: Show ccache stats
         run: |
@@ -520,15 +669,15 @@ jobs:
           else
             cmake -G Ninja -DSCN_INSTALL=ON -DSCN_ENABLE_EXTRAS=OFF $GITHUB_WORKSPACE
           fi
-          cmake --build . --target scn
+          cmake --build . --verbose --target scn
           sudo cmake --build . --target install
 
       - name: Build consumer
         run: |
           mkdir ${{ runner.workspace }}/consumer-build
           cd ${{ runner.workspace }}/consumer-build
-          cmake $GITHUB_WORKSPACE/tests/consumer-test
-          cmake --build .
+          cmake $GITHUB_WORKSPACE/tests/consumer-test/library
+          cmake --build . --verbose
 
       - name: Show ccache stats
         run: |
@@ -537,7 +686,7 @@ jobs:
       - name: Test consumer
         working-directory: ${{ runner.workspace }}/consumer-build
         run: |
-          output="$(echo '42' | ./scn-consumer)"
+          output="$(echo '42' | ./scn-consumer-library)"
           test "$output" -eq 42
 
   disabled-envs:
@@ -545,14 +694,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flags:
-          - "-DSCN_DISABLE_IOSTREAM=ON"
-          - "-DSCN_DISABLE_LOCALE=ON"
-          - "-DSCN_DISABLE_REGEX=ON"
-          - "-DSCN_DISABLE_CHRONO=ON"
-          - "-DSCN_DISABLE_TYPE_FLOAT=ON -DSCN_DISABLE_TYPE_DOUBLE=ON -DSCN_DISABLE_TYPE_LONG_DOUBLE=ON"
-          - "-DSCN_DISABLE_FROM_CHARS=ON -DSCN_DISABLE_STRTOD=ON"
-          - "-DSCN_DISABLE_FAST_FLOAT=ON"
+        include:
+          - key: iostream
+            flags: "-DSCN_DISABLE_IOSTREAM=ON"
+          - key: locale
+            flags: "-DSCN_DISABLE_LOCALE=ON"
+          - key: regex
+            flags: "-DSCN_DISABLE_REGEX=ON"
+          - key: chrono
+            flags: "-DSCN_DISABLE_CHRONO=ON"
+          - key: float
+            flags: "-DSCN_DISABLE_TYPE_FLOAT=ON -DSCN_DISABLE_TYPE_DOUBLE=ON -DSCN_DISABLE_TYPE_LONG_DOUBLE=ON"
+          - key: float-all
+            flags: "-DSCN_DISABLE_TYPE_FLOAT=ON -DSCN_DISABLE_TYPE_DOUBLE=ON -DSCN_DISABLE_TYPE_LONG_DOUBLE=ON -DSCN_DISABLE_TYPE_FLOAT16=ON -DSCN_DISABLE_TYPE_FLOAT32=ON -DSCN_DISABLE_TYPE_FLOAT64=ON -DSCN_DISABLE_TYPE_FLOAT128=ON -DSCN_DISABLE_TYPE_BFLOAT16=ON"
+          - key: int128
+            flags: "-DSCN_DISABLE_TYPE_INT128=ON -DSCN_DISABLE_TYPE_UINT128=ON"
+          - key: from-chars-and-strtod
+            flags: "-DSCN_DISABLE_FROM_CHARS=ON -DSCN_DISABLE_STRTOD=ON"
+          - key: fast-float
+            flags: "-DSCN_DISABLE_FAST_FLOAT=ON"
 
     env:
       CXX: g++-14
@@ -571,17 +731,16 @@ jobs:
         run: |
           mkdir ${{ runner.workspace }}/build
           ${APT_INSTALL} ccache
-          echo "${{ matrix.flags }}" > $GITHUB_WORKSPACE/flags.txt
 
       - name: Load ccache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-flags${{ hashFiles('$GITHUB_WORKSPACE/flags.txt') }}-${{ github.sha }}
+          key: ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-disable-${{ matrix.key }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-flags${{ hashFiles('$GITHUB_WORKSPACE/flags.txt') }}-${{ github.ref }}
-            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-flags${{ hashFiles('$GITHUB_WORKSPACE/flags.txt') }}-${{ github.base_ref }}
-            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-flags${{ hashFiles('$GITHUB_WORKSPACE/flags.txt') }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-disable-${{ matrix.key }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-disable-${{ matrix.key }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-disable-${{ matrix.key }}
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.sha }}
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.ref }}
             ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.base_ref }}
@@ -602,7 +761,71 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . --target scn -- -k 0
+        run: cmake --build . --target scn --verbose -- -k 0
+
+      - name: Show ccache stats
+        run: |
+          ccache --show-stats
+
+  special-flags:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: fast-math
+            cxx_flags: "-ffast-math"
+          - tag: full-ieee754
+            cxx_flags: "-frounding-math -fsignaling-nans"
+
+    env:
+      CXX: g++-14
+      CMAKE_CXX_STANDARD: 17
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Build Environment
+        run: |
+          mkdir ${{ runner.workspace }}/build
+          ${APT_INSTALL} ccache
+
+      - name: Load ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-special-${{ matrix.tag }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-special-${{ matrix.tag }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-special-${{ matrix.tag }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-special-${{ matrix.tag }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.sha }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}-${{ github.base_ref }}
+            ccache-${{ github.workflow }}-ubuntu22.04-${{ env.CXX }}-std${{ env.CMAKE_CXX_STANDARD }}
+
+      - name: Setup ccache
+        run: |
+          ccache --version
+          ccache --zero-stats
+          ccache --show-stats
+          ccache --show-config
+
+      - name: Run CMake
+        working-directory: ${{ runner.workspace }}/build
+        run: |
+          cmake -G Ninja -DSCN_CI=ON -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}" \
+                $GITHUB_WORKSPACE
+
+      - name: Build
+        working-directory: ${{ runner.workspace }}/build
+        run: cmake --build . --target scn --verbose -- -k 0
 
       - name: Show ccache stats
         run: |
@@ -705,7 +928,7 @@ jobs:
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
-        run: cmake --build . -- -k 0
+        run: cmake --build . --verbose -- -k 0
 
       - name: Show ccache stats
         run: |
@@ -760,9 +983,9 @@ jobs:
         run: |
           mkdir ${{ runner.workspace }}/build
           cd ${{ runner.workspace }}/build
-          emcmake cmake -DSCN_CI=ON -DSCN_BENCHMARKS=OFF $GITHUB_WORKSPACE
+          emcmake cmake -DSCN_CI=ON -DSCN_WERROR=OFF -DSCN_BENCHMARKS=OFF $GITHUB_WORKSPACE
 
       - name: Build
         working-directory: ${{ runner.workspace }}/build
         run: |
-          emmake cmake --build . --parallel
+          emmake cmake --build . --parallel --verbose
