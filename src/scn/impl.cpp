@@ -1514,7 +1514,7 @@ struct fast_float_impl_base {
 
     SCN_NODISCARD fast_float::chars_format get_flags() const
     {
-        unsigned format_flags{};
+        fast_float::chars_format format_flags{};
         if ((m_options & float_reader_base::allow_fixed) != 0) {
             format_flags |=
                 static_cast<unsigned>(fast_float::chars_format::fixed);
@@ -1524,7 +1524,7 @@ struct fast_float_impl_base {
                 static_cast<unsigned>(fast_float::chars_format::scientific);
         }
 
-        return static_cast<fast_float::chars_format>(format_flags);
+        return format_flags;
     }
 
     SCN_CLANG_POP
@@ -2901,6 +2901,19 @@ auto scan_int_exhaustive_valid_impl(std::string_view source) -> T
     impl::parse_integer_value_exhaustive_valid(source, value);
     return value;
 }
+
+template <typename Source>
+auto get_failed_sync_position(Source& source) -> std::ptrdiff_t
+{
+    const auto& buffer = source.get_segment_starting_at(0);
+    if (source.get_skip_whitespace() && !buffer.empty()) {
+        auto it = std::find_if(buffer.begin(), buffer.end(), [](auto ch) {
+            return !impl::is_ascii_space(ch);
+        });
+        return std::distance(buffer.begin(), it);
+    }
+    return 0;
+}
 }  // namespace detail
 
 scan_expected<void> vinput(std::string_view format, scan_args args)
@@ -2915,7 +2928,7 @@ scan_expected<void> vinput(std::string_view format, scan_args args)
         }
         return {};
     }
-    if (SCN_UNLIKELY(!buffer.sync_all())) {
+    if (SCN_UNLIKELY(!buffer.sync(detail::get_failed_sync_position(buffer)))) {
         return detail::unexpected_scan_error(
             scan_error::invalid_source_state,
             "Failed to sync with underlying FILE");
@@ -2940,7 +2953,8 @@ scan_expected<std::ptrdiff_t> sync_after_vscan(
         }
     }
     else {
-        if (SCN_UNLIKELY(!source.sync_all())) {
+        if (SCN_UNLIKELY(
+                !source.sync(detail::get_failed_sync_position(source)))) {
             return detail::unexpected_scan_error(
                 scan_error::invalid_source_state,
                 "Failed to sync with underlying source");
